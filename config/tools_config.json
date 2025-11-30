@@ -1,0 +1,394 @@
+[
+    {
+        "func_name": "get_next_exps_bo",
+        "code": "import json\r\nimport requests\r\ndef get_next_exps_bo(flow_id):\r\n    json_file_path = f'data/{flow_id}.json'\r\n    with open(json_file_path, \"r\") as json_file:\r\n        json_data = json.dumps(json.load(json_file))\r\n    headers = {'Content-Type': 'application/json'}\r\n    next_exps = requests.post('http://10.98.19.26:123/get-next-exps', headers=headers, data=json_data).json()\r\n\r\n    with open(json_file_path, \"w\") as json_file:\r\n        json.dump(next_exps, json_file, indent=4)\r\n    print(\"Tool: get_next_exps_bo\", next_exps)\r\n    print(f\"optimization_task JSON file saved at: {json_file_path}\")\r\n    return next_exps['condition'][-1*next_exps['q']:]",
+        "description": "    Fetches the next set of experimental candidates for optimization using Bayesian Optimization (BO).\n\n    Parameters:\n        flow_id (str):\n            The ID of the flow.\n\n    The input will include:\n        - flow_id: The string representing the ID of the flow.",
+        "gen_json": {
+            "type": "function",
+            "function": {
+                "name": "get_next_exps_bo",
+                "description": "Fetches the next set of experimental candidates for optimization using Bayesian Optimization (BO).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "flow_id": {
+                            "type": "string",
+                            "description": "The ID of the flow."
+                        }
+                    },
+                    "required": [
+                        "flow_id"
+                    ]
+                }
+            }
+        }
+    },
+    {
+        "func_name": "run_exp",
+        "code": "import json\r\nimport requests\r\ndef run_exp(flow_id):\r\n    json_file_path = f'data/{flow_id}.json'\r\n    with open(json_file_path, \"r\") as json_file:\r\n        json_data = json.dumps(json.load(json_file))\r\n    headers = {'Content-Type': 'application/json'}\r\n    exp_res = requests.post('http://10.98.19.26:123/run-exp', headers=headers, data=json_data).json()\r\n\r\n    with open(json_file_path, \"w\") as json_file:\r\n        json.dump(exp_res, json_file, indent=4)\r\n    print(\"Tool: run_exp\", exp_res)\r\n    print(f\"optimization_task JSON file saved at: {json_file_path}\")\r\n    return exp_res['outcomes'][-1*exp_res['q']:]",
+        "description": "Run the candidate experiments and get outcomes.\n\n    Parameters:\n        flow_id (str):\n            The ID of the flow.\n\n    The input will include:\n        - flow_id: The string representing the ID of the flow.",
+        "gen_json": {
+            "type": "function",
+            "function": {
+                "name": "run_exp",
+                "description": "Run the candidate experiments and get outcomes.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "flow_id": {
+                            "type": "string",
+                            "description": "The ID of the flow."
+                        }
+                    },
+                    "required": [
+                        "flow_id"
+                    ]
+                }
+            }
+        }
+    },
+    {
+        "func_name": "create_optimization_task",
+        "code": "import os\r\nimport json\r\ndef create_optimization_task(flow_id, reaction, design_space, goal, num_of_init, q, condition, outcomes):\r\n    json_file_path = f'data/{flow_id}.json'\r\n    optimization_task = {}\r\n    optimization_task[\"reaction\"] = reaction\r\n    optimization_task[\"design_space\"] = design_space\r\n    optimization_task[\"goal\"] = goal\r\n    optimization_task[\"num_of_init\"] = num_of_init\r\n    optimization_task[\"q\"] = q\r\n    optimization_task[\"condition\"] = condition\r\n    optimization_task[\"outcomes\"] = outcomes\r\n\r\n    with open(json_file_path, \"w\") as json_file:\r\n        json.dump(optimization_task, json_file, indent=4)\r\n\r\n    print(\"Tool: create_optimization_task\", optimization_task)\r\n    print(f\"optimization_task JSON file saved at: {json_file_path}\")\r\n    return optimization_task",
+        "description": "Create an optimization task JSON file with the provided details and store it locally.\n\n       Parameters:\n           reaction (str):\n               A string that represents the name or description of the chemical reaction being optimized. This reaction is the main subject of the optimization process and will influence the design space and the optimization goals.\n\n           design_space (list of dict):\n               A list of dictionaries, each describing a design parameter. Each dictionary contains:\n                   - **name** (str): The name of the parameter (e.g., \"temperature\", \"reaction time\").\n                   - **type** (str): The type of the parameter, which can either be \"continuous\" or \"categorical\".\n                   - **range** (list): Defines the possible values for this parameter. For continuous parameters, this will be a range of numeric values (e.g., [50, 100] for temperature in Celsius). For categorical parameters, this will be a list of discrete options (e.g., [\"CuBr\", \"CuCl\"] for a catalyst type).\n               This list represents the full space of parameters that will be explored during optimization.\n\n           goal (list of dict):\n               A list of dictionaries, each defining an optimization goal. Each dictionary contains:\n                   - **name** (str): The name of the optimization target (e.g., \"yield\", \"selectivity\").\n                   - **target** (str): Specifies whether to \"max\" (maximize) or \"min\" (minimize) the value of the corresponding goal.\n               The goal list specifies the objectives that the optimization process aims to achieve. This will guide the optimization algorithm in determining the best configuration of the design parameters.\n\n           num_of_init (int):\n               An integer representing the number of initial experiments to be conducted before optimization begins. These initial experiments will help establish baseline results to start the optimization process.\n\n           q (int):\n               An integer representing the number of experiments to be run per optimization round. Each optimization round will generate new experimental conditions, and `q` specifies how many experiments will be evaluated in each cycle.\n\n           condition (list):\n               An initially empty list that will later store the experimental conditions generated during the optimization process. Each entry will represent a specific set of conditions under which an experiment was conducted.\n\n           outcomes (list):\n               An initially empty list that will later store the results of the experiments conducted during the optimization. Each outcome will describe the results of a particular experiment, such as performance measures or reaction metrics.\n\n    The input will include:\n        - reaction: The string representing the chemical reaction being optimized.\n        - design_space: A list of design space parameters, each described with a name, type, and range.\n        - goal: A list of optimization goals, each containing a name and a target (either \"max\" or \"min\").\n        - num_of_init: The number of initial experiments to conduct before optimization.\n        - q: The number of experiments to be executed per optimization round.\n        - condition: An array that will eventually hold the conditions of the experiments.\n        - outcomes: An array that will hold the results of the experiments.",
+        "gen_json": {
+            "type": "function",
+            "function": {
+                "name": "create_optimization_task",
+                "description": "Create an optimization task JSON file with the provided details and store it locally.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "reaction": {
+                            "type": "string",
+                            "description": "A string that represents the name or description of the chemical reaction being optimized."
+                        },
+                        "design_space": {
+                            "type": "array",
+                            "description": "A list of design parameters that define the space to explore during optimization.",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {
+                                        "type": "string",
+                                        "description": "The name of the parameter (e.g., \"temperature\", \"reaction time\")."
+                                    },
+                                    "type": {
+                                        "type": "string",
+                                        "description": "The type of the parameter, either \"continuous\" or \"categorical\"."
+                                    },
+                                    "range": {
+                                        "type": "array",
+                                        "description": "Defines the possible values for this parameter. For continuous parameters, a numeric range; for categorical parameters, a list of discrete options.",
+                                        "items": {
+                                            "type": [
+                                                "number",
+                                                "string"
+                                            ]
+                                        }
+                                    }
+                                },
+                                "required": [
+                                    "name",
+                                    "type",
+                                    "range"
+                                ]
+                            }
+                        },
+                        "goal": {
+                            "type": "array",
+                            "description": "A list of optimization goals, each with a name and a direction (maximize or minimize).",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {
+                                        "type": "string",
+                                        "description": "The name of the optimization target (e.g., \"yield\", \"selectivity\")."
+                                    },
+                                    "target": {
+                                        "type": "string",
+                                        "description": "Specifies whether to \"max\" (maximize) or \"min\" (minimize) the value of the goal.",
+                                        "enum": [
+                                            "max",
+                                            "min"
+                                        ]
+                                    }
+                                },
+                                "required": [
+                                    "name",
+                                    "target"
+                                ]
+                            }
+                        },
+                        "num_of_init": {
+                            "type": "integer",
+                            "description": "The number of initial experiments to conduct before optimization begins."
+                        },
+                        "q": {
+                            "type": "integer",
+                            "description": "The number of experiments to be run per optimization round."
+                        },
+                        "condition": {
+                            "type": "array",
+                            "description": "An initially empty list that will store the experimental conditions generated during optimization.",
+                            "items": {}
+                        },
+                        "outcomes": {
+                            "type": "array",
+                            "description": "An initially empty list that will store the results of the experiments conducted during optimization.",
+                            "items": {}
+                        }
+                    },
+                    "required": [
+                        "reaction",
+                        "design_space",
+                        "goal",
+                        "num_of_init",
+                        "q",
+                        "condition",
+                        "outcomes"
+                    ]
+                }
+            }
+        }
+    },
+    {
+        "func_name": "expand_space",
+        "code": "import json\r\n\r\ndef expand_space(flow_id, design_space):\r\n    json_file_path = f\"data/{flow_id}.json\"\r\n\r\n    # Load existing task data\r\n    with open(json_file_path, \"r\", encoding=\"utf-8\") as json_file:\r\n        data = json.load(json_file)\r\n\r\n    # Update matching entries in the design_space\r\n    for item in design_space:\r\n        name = item.get(\"name\")\r\n        matching_item = next(\r\n            (entry for entry in data.get(\"design_space\", []) if entry.get(\"name\") == name),\r\n            None\r\n        )\r\n        if matching_item:\r\n            matching_item[\"range\"] = item.get(\"range\")\r\n            matching_item[\"type\"] = item.get(\"type\")\r\n\r\n    # Save the modified data back to file\r\n    with open(json_file_path, \"w\", encoding=\"utf-8\") as json_file:\r\n        json.dump(data, json_file, indent=4, ensure_ascii=False)\r\n\r\n    print(\"Tool: expand_space\", data)\r\n    print(f\"optimization_task JSON file saved at: {json_file_path}\")\r\n\r\n    return design_space",
+        "description": " Expands the design space for an optimization task.\n\n    Parameters:\n        design_space (list of dict): A list of parameter definitions, each with:\n            - name (str): The name of the parameter to update.\n            - type (str): The parameter type (\"continuous\" or \"categorical\").\n            - range (list): The new range or options for this parameter.\n    \n    Returns:\n        list of dict: The same design_space list that was passed in.\n",
+        "gen_json": {
+            "type": "function",
+            "function": {
+                "name": "expand_space",
+                "description": "Expands the design space for an optimization task.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "design_space": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "name": {
+                                        "type": "string",
+                                        "description": "The name of the parameter to update."
+                                    },
+                                    "type": {
+                                        "type": "string",
+                                        "enum": [
+                                            "continuous",
+                                            "categorical"
+                                        ],
+                                        "description": "The parameter type ('continuous' or 'categorical')."
+                                    },
+                                    "range": {
+                                        "type": "array",
+                                        "description": "The new range or options for this parameter.",
+                                        "items": {}
+                                    }
+                                },
+                                "required": [
+                                    "name",
+                                    "type",
+                                    "range"
+                                ]
+                            },
+                            "description": "A list of parameter definitions to update in the design space."
+                        }
+                    },
+                    "required": [
+                        "design_space"
+                    ]
+                }
+            }
+        }
+    },
+    {
+        "func_name": "get_next_exps_llm",
+        "code": "import json\ndef get_next_exps_llm(flow_id, next_exps):\n    json_file_path = f'data/{flow_id}.json'\n    with open(json_file_path, \"r\") as json_file:\n        json_data = json.load(json_file)\n    next_exps = json_data['condition'] + next_exps\n    json_data['condition'] = next_exps\n    with open(json_file_path, \"w\") as json_file:\n        json.dump(json_data, json_file, indent=4)\n    print(\"Tool: get_next_exps_llm\", json_data)\n    print(f\"optimization_task JSON file saved at: {json_file_path}\")\n    return json_data",
+        "description": "    Analyze the current optimization data and generate new candidate experiment conditions.\n\n    Parameters:\n        flow_id (str):\n            Unique identifier for the optimization flow.\n            This will be used to locate and read the JSON file at: data/{flow_id}.json\n\n        next_exps (list of list):\n            A list of proposed new experiment conditions, generated after analyzing the current data.\n            - Each inner list corresponds to one experiment condition.\n            - The order of values must match the variable order defined in the design space.\n            - The values can be categorical (string) or continuous (number).\n\n            Examples:\n                - Categorical condition:\n                    [\"Br\", \"Bpin\", \"XPhos\", \"K3PO4\", \"MeOH\"]\n                - Mixed condition (continuous + categorical):\n                    [60, 120, 2.5, \"Pd(PPh3)4\", \"K3PO4\", \"THF\"]\n\n    The input will include:\n        - flow_id: A string representing the optimization flow identifier.\n        - next_exps: A list of newly suggested experiment conditions based on the evaluation of current results.\n",
+        "gen_json": {
+            "type": "function",
+            "function": {
+                "name": "get_next_exps_llm",
+                "description": "Analyze the current optimization data and generate new candidate experiment conditions.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "flow_id": {
+                            "type": "string",
+                            "description": "Unique identifier for the optimization flow. This will be used to locate and read the JSON file at: data/{flow_id}.json"
+                        },
+                        "next_exps": {
+                            "type": "array",
+                            "description": "A list of proposed new experiment conditions, where each inner list corresponds to one experiment. The order must match the variable order defined in the design space; values can be categorical (string) or continuous (number).",
+                            "items": {
+                                "type": "array",
+                                "items": {
+                                    "type": [
+                                        "string",
+                                        "number"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "required": [
+                        "flow_id",
+                        "next_exps"
+                    ]
+                }
+            }
+        }
+    },
+    {
+        "func_name": "split_chunk",
+        "code": "def split_chunk(flow_id, file_path: str):\r\n    from langchain.text_splitter import RecursiveCharacterTextSplitter\r\n    from langchain_community.document_loaders import TextLoader\r\n    from pathlib import Path\r\n    import json\n    from paddleocr import PPStructureV3\r\n\r\n    pipeline = PPStructureV3(\r\n        use_doc_orientation_classify=False,\r\n        use_doc_unwarping=False\r\n    )\r\n\r\n    output = pipeline.predict(input=file_path)\r\n\r\n    markdown_list = []\r\n\r\n    for res in output:\r\n        md_info = res.markdown\r\n        markdown_list.append(md_info)\r\n\r\n    markdown_texts = pipeline.concatenate_markdown_pages(markdown_list)\r\n\r\n    output_txt_path =  Path(__file__).resolve().parent.parent / \"rag_data\" / flow_id / \"rag.txt\"\r\n    output_txt_path.parent.mkdir(parents=True, exist_ok=True)\r\n    output_txt_path = str(output_txt_path)\r\n\r\n    with open(output_txt_path, \"w\", encoding=\"utf-8\") as f:\r\n        f.write(markdown_texts)\r\n\r\n    loader = TextLoader(output_txt_path, encoding=\"utf-8\")\r\n\r\n    docs = loader.load()\r\n\r\n    chunk_size = 2000\r\n    chunk_overlap = 500\r\n    splitter = RecursiveCharacterTextSplitter(\r\n        chunk_size=chunk_size,\r\n        chunk_overlap=chunk_overlap\r\n    )\r\n    chunks = splitter.split_documents(docs)\r\n    chunk_texts = [doc.page_content for doc in chunks]\r\n    output_data = {\"chunks\": chunk_texts}\r\n    output_path = Path(__file__).resolve().parent.parent / \"rag_data\" / flow_id / \"chunks.json\"\r\n    output_path.parent.mkdir(parents=True, exist_ok=True)\r\n    output_path = str(output_path)\r\n    with open(output_path, \"w\", encoding=\"utf-8\") as jf:\r\n        json.dump(output_data, jf, ensure_ascii=False, indent=4)\r\n    json_file_path = f'data/{flow_id}.json'\r\n    rag_task = {\"doc_path\": output_txt_path,\r\n                \"chunks_path\": output_path}\r\n    with open(json_file_path, \"w\") as json_file:\r\n        json.dump(rag_task, json_file, indent=4)\r\n    print(f\"\\n\u2705 {len(chunk_texts)} chunks saved to {output_path}\")\r\n    return output_path",
+        "description": "  Split the input document into text chunks and save to RAG data folder.\n\n    Parameters:\n        flow_id (str):\n            The ID of the flow.\n        file_path (str):\n            The path to the source document.\n\n    The input will include:\n        - flow_id: The string representing the ID of the flow.\n        - file_path: The string path to the text file to be split.",
+        "gen_json": {
+            "type": "function",
+            "function": {
+                "name": "split_chunk",
+                "description": "Split the input document into text chunks and save to RAG data folder.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "flow_id": {
+                            "type": "string",
+                            "description": "The ID of the flow."
+                        },
+                        "file_path": {
+                            "type": "string",
+                            "description": "The path to the source document."
+                        }
+                    },
+                    "required": [
+                        "flow_id",
+                        "file_path"
+                    ]
+                }
+            }
+        }
+    },
+    {
+        "func_name": "product_extract",
+        "code": "def product_extract(flow_id):\n    import json\n    from openai import OpenAI\n    from pathlib import Path\n    import re\n\n    # 1) Load the pre-split chunks from JSON\n    chunk_path = Path(__file__).resolve().parent.parent / \"rag_data\" / flow_id / \"chunks.json\"\n    chunk_path.parent.mkdir(parents=True, exist_ok=True)\n    with open(chunk_path, \"r\", encoding=\"utf-8\") as jf:\n        data = json.load(jf)\n    chunks = data.get(\"chunks\", [])\n    pattern = re.compile(r\"1.{0,20}H.{0,20}NMR.{0,50}\u03b4\")\n    # chunk_overlap = 500\n    matched = [\n        (idx, chunk)\n        for idx, chunk in enumerate(chunks)\n        if pattern.search(chunk)\n    ]\n    merged = []\n    if matched:\n        matched.sort(key=lambda x: x[0])\n        current_idx, current_chunk = matched[0]\n\n        current_lines = [line for line in current_chunk.splitlines() if line.strip()]\n        merge_count = 1\n\n        for next_idx, next_chunk in matched[1:]:\n            if next_idx == current_idx + 1 and merge_count < 5:\n                for line in next_chunk.splitlines():\n                    line = line.strip()\n                    if line and line not in current_lines:\n                        current_lines.append(line)\n                current_idx = next_idx\n                merge_count += 1\n            else:\n                merged.append(\"\\n\".join(current_lines))\n                current_idx, current_chunk = next_idx, next_chunk\n                current_lines = [line for line in current_chunk.splitlines() if line.strip()]\n                merge_count = 1\n\n        merged.append(\"\\n\".join(current_lines))\n    sl = []\n    for doc in merged:\n        prompt = (\n                \"Output all the iupac name of compounds (only the iupac name, no molecular formula, other name or reference(like 1a,2b)) that synthesized in the context and having NMR data (1H NMR or 13C NMR) in functions_call type after reading the below long context. not use code to solve.\"\n                \"\\nContext:\"\n                + doc  # .replace('\\n', ' ')\n        )\n        tools = [\n            {\n                \"type\": \"function\",\n                \"function\": {\n                    \"name\": \"extract_iupac_names\",\n                    \"description\": \"Extracts the IUPAC names of all compounds that synthesized in the context (no molecular formula or other name) and returns them as a Python list.\",\n                    \"parameters\": {\n                        \"type\": \"object\",\n                        \"properties\": {\n                            \"names\": {\n                                \"type\": \"array\",\n                                \"items\": {\"type\": \"string\"},\n                                \"description\": \"A list of IUPAC names of compounds, items must be IUPAC names type\"\n                            }\n                        },\n                        \"required\": [\"names\"]\n                    }\n                }\n            }\n        ]\n\n\n        # 9) Call the LLM to extract the requested data\n        client = OpenAI(\n            api_key=\"sk-ZfjYtt6PJWcXNJmp17071dE24dE145D3Ac0c2b9d02D73793\",\n            base_url=\"https://api.ai-gaochao.cn/v1\"\n        )\n        completion = client.chat.completions.create(\n            model=\"o4-mini\",\n            messages=[{\"role\": \"user\", \"content\": prompt}],\n            tools=tools\n        )\n\n        # 10) Parse and print the LLM's response\n        res = completion.choices[0].message.tool_calls[0].function.arguments\n        sl += json.loads(res)['names']\n\n    def normalize(s: str) -> str:\n        s_norm = (\n            s\n            .replace('[', '(')\n            .replace(']', ')')\n            .replace('\u2013', '-')\n            .strip()\n            .lower()\n        )\n        s_norm = re.sub(r'[-\\s]+', '-', s_norm)\n        return s_norm\n\n    unique = []\n    seen_keys = set()\n\n    for s in sl:\n        key = normalize(s)\n        if key not in seen_keys:\n            seen_keys.add(key)\n            s = re.sub(r'^\u00b1', '(\u00b1)', s)\n            unique.append(s)\n\n    # 10) Parse and print the LLM's response\n    res = {\"names\": unique}\n    product_path = Path(__file__).resolve().parent.parent / \"rag_data\" / flow_id / \"product.json\"\n    product_path.parent.mkdir(parents=True, exist_ok=True)\n    product_path = str(product_path)\n    with open(product_path, \"w\", encoding=\"utf-8\") as pf:\n        json.dump(res, pf, indent=4)\n    json_file_path = f'data/{flow_id}.json'\n    with open(json_file_path, \"r\") as json_file:\n        json_data = json.load(json_file)\n    json_data[\"product_path\"] = product_path\n    with open(json_file_path, \"w\") as json_file:\n        json.dump(json_data, json_file, indent=4)\n    print(f\"Product JSON file saved at: {product_path}\")\n    return res['names']",
+        "description": "    Extract all the product name from the literature.\n\n    Parameters:\n        flow_id (str):\n            The id of the flow.\n\n    The input will include:\n        - flow_id: The string representing the ID of the flow.",
+        "gen_json": {
+            "type": "function",
+            "function": {
+                "name": "product_extract",
+                "description": "Extract all the product name from the literature.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "flow_id": {
+                            "type": "string",
+                            "description": "The id of the flow."
+                        }
+                    },
+                    "required": [
+                        "flow_id"
+                    ]
+                }
+            }
+        }
+    },
+    {
+        "func_name": "find_similar",
+        "code": "def find_similar(flow_id, target_product):\r\n    import requests\r\n    from tenacity import retry, stop_after_attempt, wait_fixed\r\n    from rdkit import Chem\r\n    from rdkit.Chem import AllChem, DataStructs\r\n    from pathlib import Path\r\n    import json\r\n\r\n    @retry(stop=stop_after_attempt(5), wait=wait_fixed(2))\r\n    def name_to_smiles(name):\r\n        \"\"\"Convert IUPAC name to SMILES using OPSIN API, with retry.\"\"\"\r\n        url = f'https://opsin.ch.cam.ac.uk/opsin/{name}.smi'\r\n        resp = requests.get(url, timeout=30)\r\n        resp.raise_for_status()\r\n        smiles = resp.text.strip()\r\n        if not smiles or \"No parseable structure\" in smiles:\r\n            raise ValueError(f\"OPSIN failed to parse: {name}\")\r\n        return smiles\r\n\r\n    fpgen = AllChem.GetMorganGenerator(radius=2)\r\n\r\n    # Try parsing as SMILES first, else treat as name and convert\r\n    try:\r\n        user_mol = Chem.MolFromSmiles(target_product)\r\n        if user_mol is None:\r\n            raise ValueError\r\n        user_smiles = target_product\r\n    except Exception:\r\n        user_smiles = name_to_smiles(target_product)\r\n        user_mol = Chem.MolFromSmiles(user_smiles)\r\n        if user_mol is None:\r\n            raise ValueError(\"Cannot recognize as SMILES or IUPAC name, or OPSIN conversion failed\")\r\n\r\n    user_fp = fpgen.GetSparseCountFingerprint(user_mol)\r\n    product_path = Path(__file__).resolve().parent.parent / \"rag_data\" / flow_id / \"product.json\"\r\n    product_path.parent.mkdir(parents=True, exist_ok=True)\r\n    with open(product_path, \"r\", encoding=\"utf-8\") as jf:\r\n        data = json.load(jf)\r\n    names = data.get(\"names\", [])\r\n    # Convert all names in list to SMILES\r\n    smiles_list = []\r\n    for n in names:\r\n        try:\r\n            s = name_to_smiles(n)\r\n            smiles_list.append(s)\r\n        except Exception:\r\n            smiles_list.append(None)\r\n        data[\"smiles\"] = smiles_list\r\n        with open(product_path, \"w\", encoding=\"utf-8\") as pf:\r\n            json.dump(data, pf, indent=4)\r\n    # Compute similarity to user compound\r\n    max_sim = -1\r\n    best_idx = -1\r\n    for idx, smi in enumerate(smiles_list):\r\n        if smi:\r\n            m = Chem.MolFromSmiles(smi)\r\n            if m:\r\n                fp = fpgen.GetSparseCountFingerprint(m)\r\n                sim = DataStructs.TanimotoSimilarity(user_fp, fp)\r\n                if sim > max_sim:\r\n                    max_sim = sim\r\n                    best_idx = idx\r\n    similar_product = names[best_idx]\r\n\r\n    json_file_path = f'data/{flow_id}.json'\r\n\r\n    with open(json_file_path, \"r\") as json_file:\r\n        json_data = json.load(json_file)\r\n    json_data[\"similar_product\"] = similar_product\r\n    json_data[\"procedure\"] = \"\"\r\n    json_data['query_history'] = []\r\n    with open(json_file_path, \"w\") as json_file:\r\n        json.dump(json_data, json_file, indent=4)\r\n\r\n    print(\"The most similar compound to your input is:\" + similar_product)\r\n    return similar_product",
+        "description": "    Find similar product with target product.\n\n    Parameters:\n        flow_id (str):\n            Unique identifier of the workflow.\n        target_product (str):\n            Target product user wants to synthesize.\n\n    The input will include:\n        - flow_id: The string representing the ID of the flow.\n        - target_product: The string representing the target product name.",
+        "gen_json": {
+            "type": "function",
+            "function": {
+                "name": "find_similar",
+                "description": "Find similar product with target product.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "flow_id": {
+                            "type": "string",
+                            "description": "Unique identifier of the workflow."
+                        },
+                        "target_product": {
+                            "type": "string",
+                            "description": "Target product user wants to synthesize."
+                        }
+                    },
+                    "required": [
+                        "flow_id",
+                        "target_product"
+                    ]
+                }
+            }
+        }
+    },
+    {
+        "func_name": "procedure_extract",
+        "code": "def procedure_extract(flow_id, query_word, chunk_count):\r\n    import json\r\n    from langchain_openai import OpenAIEmbeddings\r\n    from langchain_community.vectorstores import FAISS\r\n    from openai import OpenAI\r\n    from langchain.schema import Document as LC_Document\r\n    from pathlib import Path\r\n\r\n    # 1) Load the pre-split chunks from JSON\r\n\r\n    chunk_path = Path(__file__).resolve().parent.parent / \"rag_data\" / flow_id / \"chunks.json\"\r\n    chunk_path.parent.mkdir(parents=True, exist_ok=True)\r\n\r\n    with open(chunk_path, \"r\", encoding=\"utf-8\") as jf:\r\n        data = json.load(jf)\r\n    chunks = data.get(\"chunks\", [])\r\n\r\n\r\n\r\n    # 2) Wrap each chunk in a LangChain Document\r\n    docs = [LC_Document(page_content=chunk) for chunk in chunks]\r\n\r\n    # 3) Initialize the embeddings model\r\n    embeddings = OpenAIEmbeddings(\r\n        openai_api_key=\"sk-ZfjYtt6PJWcXNJmp17071dE24dE145D3Ac0c2b9d02D73793\",\r\n        base_url=\"https://api.ai-gaochao.cn/v1\",\r\n        model=\"text-embedding-3-large\"\r\n    )\r\n\r\n    # 4) Build a FAISS vector store from the documents\r\n    vector_store = FAISS.from_documents(docs, embeddings)\r\n\r\n    # 5) Create a Retriever that only handles similarity search\r\n    retriever = vector_store.as_retriever(search_kwargs={\"k\": chunk_count})\r\n\r\n    def retrieve_raw_snippets(query: str) -> list[str]:\r\n        \"\"\"\r\n        Given a user query, return the top-k raw text snippets\r\n        from the vector store without invoking the LLM.\r\n        \"\"\"\r\n        docs = retriever.invoke(query)\r\n        return [doc.page_content for doc in docs]\r\n\r\n    # 6) Example usage: retrieve HRMS data for a specific compound\r\n    user_query = query_word\r\n    snippets = retrieve_raw_snippets(user_query)\r\n\r\n    # 7) Combine the retrieved snippets into a single context string\r\n    context = \"\\n\\n---\\n\\n\".join(snippets)\r\n    # print(context)\r\n\r\n    # 8) Build a concise prompt to extract\r\n    json_file_path = f'data/{flow_id}.json'\r\n    with open(json_file_path, \"r\") as json_file:\r\n        json_data = json.load(json_file)\r\n    similar_product = json_data[\"similar_product\"]\r\n    existing_procedure = json_data[\"procedure\"]\r\n    prompt = (f\"target:give me only synthesis procedure procedure of {similar_product} (exclude Workup procedure and  \"\r\n              f\"Characterization) by modifying existing information after finding useful information (especially complete name of referred (abbreviated) reagents and detailed procedure) about '{query_word}' \"\r\n              f\"from reference materials, Only output the most accurate and certain information from the reference materials, avoiding self guessing information. If there are references to the synthesis procedure in the reference materials, do not guess the content of the references.\"\r\n              f\" \\n existing information: {existing_procedure}. \\n reference materials: {context}\")\r\n\r\n\r\n    # 9) Call the LLM to extract the requested data\r\n    client = OpenAI(\r\n        api_key=\"sk-ZfjYtt6PJWcXNJmp17071dE24dE145D3Ac0c2b9d02D73793\",\r\n        base_url=\"https://api.ai-gaochao.cn/v1\"\r\n    )\r\n    completion = client.chat.completions.create(\r\n        model=\"o4-mini\",\r\n        messages=[{\"role\": \"user\", \"content\": prompt}],\r\n    )\r\n\r\n    # 10) Parse and print the LLM's response\r\n    res = completion.choices[0].message.content\r\n    json_data[\"procedure\"] = res\r\n    json_data['query_history'].append(query_word)\r\n    with open(json_file_path, \"w\") as json_file:\r\n        json.dump(json_data, json_file, indent=4)\r\n\r\n    print(\"The current procedure:\" + res)\r\n    return res",
+        "description": "    Extract synthesis procedure (excluding Workup procedure) for the similar product found in the literature instead of the product in goal.\n\n    Parameters:\n        flow_id (str):\n            Unique identifier of the workflow.\n        query_word (str):\n            The key term to search in the existing procedure given by Evaluator.\n            If the term is an abbreviation, its type can be added.\n            e.g., L1 \u2192 Ligand L1.\n        chunk_count (number):\n            Number of text chunks to match:\n              A. Use a small value (e.g., ~3) when 'query_word' is the IUPAC name\n                 (a standardized naming method, e.g., \"4-bromo-1-methylindazole\", \"2-methoxyethanol\").\n              B. Use a large value (e.g., ~20) when 'query_word' refers to frequent terms\n                 like \"general procedure\", \"ligand 1\", \"PC\", \"catalyst\".\n              C. Increase it (e.g., number of searches \u00d7 20) on repeated searches\n                 for similar 'query_word's.\n\n    The input will include:\n        - flow_id: The string representing the ID of the flow.\n        - query_word: The string representing the target search term.\n        - chunk_count: The number specifying how many text chunks to retrieve.",
+        "gen_json": {
+            "type": "function",
+            "function": {
+                "name": "procedure_extract",
+                "description": "Extract synthesis procedure (excluding Workup procedure) for the similar product found in the literature based on a search term.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "flow_id": {
+                            "type": "string",
+                            "description": "Unique identifier of the workflow."
+                        },
+                        "query_word": {
+                            "type": "string",
+                            "description": "The key term to search in the existing procedure given by Evaluator. If the term is an abbreviation, its type can be added (e.g., L1 \u2192 Ligand L1)."
+                        },
+                        "chunk_count": {
+                            "type": "number",
+                            "description": "Number of text chunks to retrieve:\n  A. Use a small value (e.g., ~3) when 'query_word' is the IUPAC name (standardized naming: e.g., \"4-bromo-1-methylindazole\").\n  B. Use a larger value (e.g., ~20) when 'query_word' refers to frequent terms like \"general procedure\", \"ligand 1\", \"PC\", \"catalyst\".\n  C. Increase further (e.g., number of searches \u00d7 20) on repeated searches for similar 'query_word's."
+                        }
+                    },
+                    "required": [
+                        "flow_id",
+                        "query_word",
+                        "chunk_count"
+                    ]
+                }
+            }
+        }
+    },
+    {
+        "func_name": "procedure_extract_including_workup",
+        "code": "def procedure_extract_including_workup(flow_id, query_word, chunk_count):\r\n    import json\r\n    from langchain_openai import OpenAIEmbeddings\r\n    from langchain_community.vectorstores import FAISS\r\n    from openai import OpenAI\r\n    from langchain.schema import Document as LC_Document\r\n    from pathlib import Path\r\n\r\n    # 1) Load the pre-split chunks from JSON\r\n\r\n    chunk_path = Path(__file__).resolve().parent.parent / \"rag_data\" / flow_id / \"chunks.json\"\r\n    chunk_path.parent.mkdir(parents=True, exist_ok=True)\r\n\r\n    with open(chunk_path, \"r\", encoding=\"utf-8\") as jf:\r\n        data = json.load(jf)\r\n    chunks = data.get(\"chunks\", [])\r\n\r\n\r\n\r\n    # 2) Wrap each chunk in a LangChain Document\r\n    docs = [LC_Document(page_content=chunk) for chunk in chunks]\r\n\r\n    # 3) Initialize the embeddings model\r\n    embeddings = OpenAIEmbeddings(\r\n        openai_api_key=\"sk-ZfjYtt6PJWcXNJmp17071dE24dE145D3Ac0c2b9d02D73793\",\r\n        base_url=\"https://api.ai-gaochao.cn/v1\",\r\n        model=\"text-embedding-3-large\"\r\n    )\r\n\r\n    # 4) Build a FAISS vector store from the documents\r\n    vector_store = FAISS.from_documents(docs, embeddings)\r\n\r\n    # 5) Create a Retriever that only handles similarity search\r\n    retriever = vector_store.as_retriever(search_kwargs={\"k\": chunk_count})\r\n\r\n    def retrieve_raw_snippets(query: str) -> list[str]:\r\n        \"\"\"\r\n        Given a user query, return the top-k raw text snippets\r\n        from the vector store without invoking the LLM.\r\n        \"\"\"\r\n        docs = retriever.invoke(query)\r\n        return [doc.page_content for doc in docs]\r\n\r\n    # 6) Example usage: retrieve HRMS data for a specific compound\r\n    user_query = query_word\r\n    snippets = retrieve_raw_snippets(user_query)\r\n\r\n    # 7) Combine the retrieved snippets into a single context string\r\n    context = \"\\n\\n---\\n\\n\".join(snippets)\r\n    # print(context)\r\n\r\n    # 8) Build a concise prompt to extract\r\n    json_file_path = f'data/{flow_id}.json'\r\n    with open(json_file_path, \"r\") as json_file:\r\n        json_data = json.load(json_file)\r\n    similar_product = json_data[\"similar_product\"]\r\n    existing_procedure = json_data[\"procedure\"]\r\n    prompt = (f\"target:give me synthesis procedure and workup procedure of {similar_product} (exclude  \"\r\n              f\"Characterization) by modifying existing information after finding useful information (especially complete name of referred (abbreviated) reagents and detailed procedure) about '{query_word}' \"\r\n              f\"from reference materials, Only output the most accurate and certain information from the reference materials, avoiding self guessing information. If there are references to the synthesis procedure in the reference materials, do not guess the content of the references.\"\r\n              f\" \\n existing information: {existing_procedure}. \\n reference materials: {context}\")\r\n\r\n\r\n    # 9) Call the LLM to extract the requested data\r\n    client = OpenAI(\r\n        api_key=\"sk-ZfjYtt6PJWcXNJmp17071dE24dE145D3Ac0c2b9d02D73793\",\r\n        base_url=\"https://api.ai-gaochao.cn/v1\"\r\n    )\r\n    completion = client.chat.completions.create(\r\n        model=\"o4-mini\",\r\n        messages=[{\"role\": \"user\", \"content\": prompt}],\r\n    )\r\n\r\n    # 10) Parse and print the LLM's response\r\n    res = completion.choices[0].message.content\r\n    json_data[\"procedure\"] = res\r\n    json_data['query_history'].append(query_word)\r\n    with open(json_file_path, \"w\") as json_file:\r\n        json.dump(json_data, json_file, indent=4)\r\n\r\n    print(\"The current procedure:\" + res)\r\n    return res",
+        "description": "    \"\"\"\n    Extract synthesis and workup procedure for the similar product found in the literature instead of the product in goal.\n\n    Parameters:\n        flow_id (str):\n            Unique identifier of the workflow.\n        query_word (str):\n            The key term to search in the existing procedure given by Evaluator.\n            If the term is an abbreviation, its type can be added.\n            e.g., L1 \u2192 Ligand L1.\n        chunk_count (number):\n            Number of text chunks to match:\n              A. Use a small value (e.g., ~3) when 'query_word' is the IUPAC name\n                 (a standardized naming method, e.g., \"4-bromo-1-methylindazole\", \"2-methoxyethanol\").\n              B. Use a large value (e.g., ~20) when 'query_word' refers to frequent terms\n                 like \"general procedure\", \"ligand 1\", \"PC\", \"catalyst\".\n              C. Increase it (e.g., number of searches \u00d7 20) on repeated searches\n                 for similar 'query_word's.\n\n    The input will include:\n        - flow_id: The string representing the ID of the flow.\n        - query_word: The string representing the target search term.\n        - chunk_count: The number specifying how many text chunks to retrieve.\n    \"\"\"",
+        "gen_json": {
+            "type": "function",
+            "function": {
+                "name": "procedure_extract_including_workup",
+                "description": "Extract synthesis and workup procedure for the similar product found in the literature instead of the product in goal.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "flow_id": {
+                            "type": "string",
+                            "description": "Unique identifier of the workflow."
+                        },
+                        "query_word": {
+                            "type": "string",
+                            "description": "The key term to search in the existing procedure given by Evaluator. If the term is an abbreviation, its type can be added. e.g., L1 \u2192 Ligand L1."
+                        },
+                        "chunk_count": {
+                            "type": "number",
+                            "description": "Number of text chunks to match: A. Use a small value (e.g., ~3) when 'query_word' is the IUPAC name (a standardized naming method, e.g., \"4-bromo-1-methylindazole\", \"2-methoxyethanol\"). B. Use a large value (e.g., ~20) when 'query_word' refers to frequent terms like \"general procedure\", \"ligand 1\", \"PC\", \"catalyst\". C. Increase it (e.g., number of searches \u00d7 20) on repeated searches for similar 'query_word's."
+                        }
+                    },
+                    "required": [
+                        "flow_id",
+                        "query_word",
+                        "chunk_count"
+                    ]
+                }
+            }
+        }
+    }
+]

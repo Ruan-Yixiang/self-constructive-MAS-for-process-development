@@ -1,0 +1,1600 @@
+[
+    {
+        "worker": [
+            {
+                "name": "DesignWorker",
+                "description": "This worker handles the creation and updating of the optimization task. For the initial stage, it calls the create_optimization_task function to set up the optimization objectives, constraints, and initial design space. If evaluation indicates that design space expansion is needed, it calls the expand_space function to update continuous variable ranges. Each task is explicitly linked to its tool: create_optimization_task for initial setup and expand_space for design space expansion.",
+                "llm": "o3-mini",
+                "tools": [
+                    "create_optimization_task",
+                    "expand_space"
+                ]
+            },
+            {
+                "name": "BayesianOptimizer",
+                "description": "This worker generates candidate experimental conditions by calling the get_next_exps_bo function. It uses the Bayesian optimization algorithm to propose the next batch of q experiments based on past results and the current surrogate model.",
+                "llm": "o3-mini",
+                "tools": [
+                    "get_next_exps_bo"
+                ]
+            },
+            {
+                "name": "ExperimentRunner",
+                "description": "This worker executes experiments by calling the run_exp function on each candidate condition. It runs the experiments in parallel (up to q per round) and gathers outcome data for subsequent evaluation.",
+                "llm": "o3-mini",
+                "tools": [
+                    "run_exp"
+                ]
+            },
+            {
+                "name": "Evaluator",
+                "description": "At the evaluation stage, this worker analyzes the history of optimization cycles. Evaluation principle: First, evaluate if there has been any improvement in the optimization targets after several cycles of get_next_exps-experiment-evaluation cycles based on the memory. If improvements have been observed, continue the cycles without expanding or ending. \n\n If no improvement has been observed, then assess whether the design space needs to be expanded or if the optimization process should be terminated. Design Space Expansion (update optimization task): If there are one or more continuous variables in the optimal condition are the extremum of their value ranges, you could expand the design space. If the optimal condition is not in the boundary, do not expand the space. Termination of Optimization: If no significant improvement has been observed in the optimization targets after a reasonable number of cycles, and further exploration is unlikely to yield substantial gains, consider terminating the optimization process. The absence of stability or convergence alone is not sufficient to continue the optimization.",
+                "llm": "o3-mini",
+                "max_output": 50
+            }
+        ],
+        "task": [
+            {
+                "name": "CreateOptimizationTask",
+                "description": "Initialize the optimization by calling the create_optimization_task function. This sets up objectives, constraints, and the initial design space.",
+                "worker": "DesignWorker"
+            },
+            {
+                "name": "GetNextExperiments",
+                "description": "Generate the next batch of candidate conditions by calling the get_next_exps_bo function, leveraging the Bayesian optimization algorithm.",
+                "worker": "BayesianOptimizer"
+            },
+            {
+                "name": "RunExperiments",
+                "description": "Execute the proposed candidate experiments by calling the run_exp function, running up to q experiments in parallel and collecting results.",
+                "worker": "ExperimentRunner"
+            },
+            {
+                "name": "EvaluateOptimization",
+                "description": "Analyze outcomes and memory to assess improvement and decide whether to continue, expand the design space, or terminate the optimization.",
+                "worker": "Evaluator"
+            },
+            {
+                "name": "ExpandDesignSpace",
+                "description": "If evaluation indicates boundary conditions in optimal variables, call expand_space to update the design space and then re-enter the optimization cycle.",
+                "worker": "DesignWorker"
+            }
+        ],
+        "manager": {
+            "name": "OptimizationManager",
+            "description": "The manager oversees the entire optimization workflow. It sequences tasks: first initializing the optimization, then iteratively generating experiments, executing them, and evaluating results. Based on evaluation outcomes, it may instruct design space expansion and re-enter the experiment loop. It allocates tasks to workers, monitors resource usage, and makes high-level decisions on optimization progress, workflow adjustments, and termination conditions.",
+            "llm": "o3-mini",
+            "tasks": [
+                "CreateOptimizationTask",
+                "GetNextExperiments",
+                "RunExperiments",
+                "EvaluateOptimization",
+                "ExpandDesignSpace"
+            ]
+        },
+        "llm": [
+            {
+                "name": "o3-mini",
+                "api_key": "sk-ZfjYtt6PJWcXNJmp17071dE24dE145D3Ac0c2b9d02D73793",
+                "base_url": "https://api.ai-gaochao.cn/v1",
+                "model": "o3-mini-2025-01-31"
+            }
+        ],
+        "name": "Optimization",
+        "tools": {
+            "create_optimization_task": {
+                "type": "function",
+                "function": {
+                    "name": "create_optimization_task",
+                    "description": "Create an optimization task JSON file with the provided details and store it locally.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "reaction": {
+                                "type": "string",
+                                "description": "A string that represents the name or description of the chemical reaction being optimized."
+                            },
+                            "design_space": {
+                                "type": "array",
+                                "description": "A list of design parameters that define the space to explore during optimization.",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "name": {
+                                            "type": "string",
+                                            "description": "The name of the parameter (e.g., \"temperature\", \"reaction time\")."
+                                        },
+                                        "type": {
+                                            "type": "string",
+                                            "description": "The type of the parameter, either \"continuous\" or \"categorical\"."
+                                        },
+                                        "range": {
+                                            "type": "array",
+                                            "description": "Defines the possible values for this parameter. For continuous parameters, a numeric range; for categorical parameters, a list of discrete options.",
+                                            "items": {
+                                                "type": [
+                                                    "number",
+                                                    "string"
+                                                ]
+                                            }
+                                        }
+                                    },
+                                    "required": [
+                                        "name",
+                                        "type",
+                                        "range"
+                                    ]
+                                }
+                            },
+                            "goal": {
+                                "type": "array",
+                                "description": "A list of optimization goals, each with a name and a direction (maximize or minimize).",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "name": {
+                                            "type": "string",
+                                            "description": "The name of the optimization target (e.g., \"yield\", \"selectivity\")."
+                                        },
+                                        "target": {
+                                            "type": "string",
+                                            "description": "Specifies whether to \"max\" (maximize) or \"min\" (minimize) the value of the goal.",
+                                            "enum": [
+                                                "max",
+                                                "min"
+                                            ]
+                                        }
+                                    },
+                                    "required": [
+                                        "name",
+                                        "target"
+                                    ]
+                                }
+                            },
+                            "num_of_init": {
+                                "type": "integer",
+                                "description": "The number of initial experiments to conduct before optimization begins."
+                            },
+                            "q": {
+                                "type": "integer",
+                                "description": "The number of experiments to be run per optimization round."
+                            },
+                            "condition": {
+                                "type": "array",
+                                "description": "An initially empty list that will store the experimental conditions generated during optimization.",
+                                "items": {}
+                            },
+                            "outcomes": {
+                                "type": "array",
+                                "description": "An initially empty list that will store the results of the experiments conducted during optimization.",
+                                "items": {}
+                            }
+                        },
+                        "required": [
+                            "reaction",
+                            "design_space",
+                            "goal",
+                            "num_of_init",
+                            "q",
+                            "condition",
+                            "outcomes"
+                        ]
+                    }
+                }
+            },
+            "expand_space": {
+                "type": "function",
+                "function": {
+                    "name": "expand_space",
+                    "description": "Expands the design space for an optimization task, returning the full current design_space including any unchanged parameters.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "design_space": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "name": {
+                                            "type": "string",
+                                            "description": "The name of the parameter (e.g., \"time\", \"volume of catalyst\")."
+                                        },
+                                        "type": {
+                                            "type": "string",
+                                            "enum": [
+                                                "continuous",
+                                                "categorical"
+                                            ],
+                                            "description": "The type of the parameter."
+                                        },
+                                        "range": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": [
+                                                    "number",
+                                                    "string"
+                                                ]
+                                            },
+                                            "description": "The range of values that the parameter can take. Numeric values for continuous parameters, discrete values for categorical parameters."
+                                        }
+                                    },
+                                    "required": [
+                                        "name",
+                                        "type",
+                                        "range"
+                                    ]
+                                },
+                                "description": "A list of design space parameters."
+                            }
+                        },
+                        "required": [
+                            "design_space"
+                        ]
+                    }
+                }
+            },
+            "get_next_exps_bo": {
+                "type": "function",
+                "function": {
+                    "name": "get_next_exps_bo",
+                    "description": "Fetches the next set of experimental candidates for optimization using Bayesian Optimization (BO).",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "flow_id": {
+                                "type": "string",
+                                "description": "The ID of the flow."
+                            }
+                        },
+                        "required": [
+                            "flow_id"
+                        ]
+                    }
+                }
+            },
+            "run_exp": {
+                "type": "function",
+                "function": {
+                    "name": "run_exp",
+                    "description": "Run the candidate experiments and get outcomes.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "flow_id": {
+                                "type": "string",
+                                "description": "The ID of the flow."
+                            }
+                        },
+                        "required": [
+                            "flow_id"
+                        ]
+                    }
+                }
+            }
+        }
+    },
+    {
+            "worker": [
+            {
+                "name": "Text_Parser",
+                "description": "Responsible for splitting input text according to different situations. Uses the TextSplitter tool to perform tokenization and segmentation of raw documents, ensuring that text is divided into logical units for downstream retrieval.",
+                "llm": "o4-mini",
+                "tools": [
+                    "split_chunk"
+                ]
+            },
+            {
+                "name": "Retriever",
+                "description": "When task is Retrieval_Procedure, call procedure_extract tool. \n\n When task is Retrieval_Product, call product_extract tool",
+                "llm": "o4-mini",
+                "tools": [
+                    "product_extract",
+                    "procedure_extract"
+                ]
+            },
+            {
+                "name": "Generator",
+                "description": "Responsible for generating or processing extracted data after the RAG flow. Uses the LLM directly to assemble final outputs, integrate information from previous steps, and produce user-facing summaries or answers.",
+                "llm": "o4-mini",
+                "tools": [
+                    "find_similar"
+                ]
+            },
+            {
+                "name": "Evaluator",
+                "description": "You are responsible for evaluating the experimental procedure retrieved for a similar product. First, review the 'procedure text' and 'query history' in memory data to determine whether it contains all necessary steps and reagents\u2014including cross-references or undefined letter- or number-referenced reagents (including unusual abbreviations for reagents) such as \u201cgeneral procedure (of modification)\u201d, \u201cA1,\u201d \u201cLigand 2\u201d, \u201cPC,\u201d etc. Notably, Focus only on the synthesis steps for that similar product\u2014not on any other reagents\u2019 syntheses, workup, or characterization.  If the procedure is incomplete or still refers to undefined sections, identify and return the most critical reference term or keywords that must be retrieved next. The term or keywords must be one type of term and exclude those similar with words in the query history data!!!!. If the procedure is fully self-contained and no missing references remain, indicate that the extraction is complete and suggest manager terminate the workflow.",
+                "llm": "o4-mini",
+                "max_output": 50
+            }
+        ],
+        "task": [
+            {
+                "name": "Segment",
+                "description": "Split the user-provided text into segments based on different situational criteria (headings, paragraphs, or domain-specific markers). This task prepares the text for retrieval by ensuring logical units are preserved.",
+                "worker": "Text_Parser"
+            },
+            {
+                "name": "Product_Collect",
+                "description": "Extract the IUPAC names of all compounds that synthesized in the context.",
+                "worker": "Retriever"
+            },
+            {
+                "name": "Retrieval_Procedure",
+                "description": "Extract synthesis procedure for the similar product found in the literature instead of the product in goal.",
+                "worker": "Retriever"
+            },
+            {
+                "name": "Similarity",
+                "description": "Generate final synthesized output based on validated retrieval results. This task composes the user-facing response or report by integrating extracted data and applying domain logic.",
+                "worker": "Generator"
+            },
+            {
+                "name": "Evaluation",
+                "description": "Evaluate retrieved snippets to check if the required information or references are present. If not, flag and request additional retrieval.",
+                "worker": "Evaluator"
+            }
+        ],
+        "manager": {
+            "name": "RAGManager",
+            "description": "First, use the Splitter to tokenize the entire document into discrete units. Next, complete Retrieval_Product to retrieve every product mention from the literature. Then, invoke find_similar to perform a similarity search. After you\u2019ve identified the most similar product, complete Retrieval_Procedure task to pull in the full experimental procedure for the most similar product. Finally, enter an iterative loop of Retrieval_Procedure \u2192 evaluation \u2192 Retrieval_Procedure: after each retrieval pass, evaluate the completeness and accuracy of the extracted procedures, then feed your evaluation results back into procedure_extract to refine and improve the procedure retrieval until it meets your quality criteria.",
+            "llm": "o4-mini",
+            "tasks": [
+                "Segment",
+                "Product_Collect",
+                "Retrieval_Procedure",
+                "Similarity",
+                "Evaluation"
+            ]
+        },
+        "llm": [
+            {
+                "name": "o4-mini",
+                "api_key": "sk-ZfjYtt6PJWcXNJmp17071dE24dE145D3Ac0c2b9d02D73793",
+                "base_url": "https://api.ai-gaochao.cn/v1",
+                "model": "gpt-5"
+            }
+        ],
+        "name": "Literature Extraction",
+        "tools": {
+            "split_chunk": {
+                "type": "function",
+                "function": {
+                    "name": "split_chunk",
+                    "description": "Split a markdown document into structured chunks based on flow_id and file path",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "flow_id": {
+                                "type": "string",
+                                "description": "Unique identifier of the workflow"
+                            },
+                            "file_path": {
+                                "type": "string",
+                                "description": "Absolute path to the file to be chunked"
+                            }
+                        },
+                        "required": [
+                            "flow_id",
+                            "file_path"
+                        ]
+                    }
+                }
+            },
+            "product_extract": {
+                "type": "function",
+                "function": {
+                    "name": "product_extract",
+                    "description": "extract product name.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "flow_id": {
+                                "type": "string",
+                                "description": "The id of the flow."
+                            }
+                        },
+                        "required": [
+                            "flow_id"
+                        ]
+                    }
+                }
+            },
+            "find_similar": {
+                "type": "function",
+                "function": {
+                    "name": "find_similar",
+                    "description": "find similar product with target product",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "flow_id": {
+                                "type": "string",
+                                "description": "Unique identifier of the workflow"
+                            },
+                            "target_product": {
+                                "type": "string",
+                                "description": "target product user want to synthesize"
+                            }
+                        },
+                        "required": [
+                            "flow_id",
+                            "target_product"
+                        ]
+                    }
+                }
+            },
+            "procedure_extract": {
+                "type": "function",
+                "function": {
+                    "name": "procedure_extract",
+                    "description": "Extract synthesis procedure for the similar product found in the literature instead of the product in goal",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "flow_id": {
+                                "type": "string",
+                                "description": "Unique identifier of the workflow"
+                            },
+                            "query_word": {
+                                "type": "string",
+                                "description": "The key term to search in the existing procedure given by Evaluator, If the term is an abbreviation, its type can be added. e.g. L1 \u2192 Ligand L1"
+                            },
+                            "chunk_count": {
+                                "type": "number",
+                                "description": "Number of text chunks to match: A. use a small value (e.g. ~3) when 'query_word' is the IUPAC name (a standardized method for naming chemical compound, Complex full name, like '4-bromo-1-methylindazole and 2-methoxyethanol') of similar products, \n\n B. a large value (e.g. ~20) when 'query_word' is frequent referenced procedures or reagents terms like 'general procedure', 'ligand 1', 'PC', 'catalyst'. \n\n C.increase it (e.g. number of search * 20) on repeated searches of the similar query_word"
+                            }
+                        },
+                        "required": [
+                            "flow_id",
+                            "query_word",
+                            "chunk_count"
+                        ]
+                    }
+                }
+            }
+        }
+    },
+    {
+        "worker": [
+            {
+                "name": "Analyzer",
+                "description": "Parse a multi-step synthetic procedure into structured JSON. In this process, you need to calculate the molar amount of each reactant and product at each step based on equivalence and yield. If the product from the previous step is the reactant from the next step, the molar amount of both should be consistent",
+                "llm": "o4-mini",
+                "tools": [
+                    "procedure_parse"
+                ]
+            },
+            {
+                "name": "Searcher",
+                "description": "Search information for steps",
+                "llm": "o4-mini",
+                "tools": [
+                    "search_information"
+                ]
+            },
+            {
+                "name": "Calculator",
+                "description": "calculate mass for each step",
+                "llm": "o4-mini",
+                "tools": [
+                    "mass_calculate"
+                ]
+            },
+            {
+                "name": "Drawer",
+                "description": " Please output only valid Graphviz DOT code (no explanatory text or markdown). The diagram must use the following global node style:\n\nnode [shape=box, style=\"rounded,filled\", fillcolor=\"#FDFDFD\", fontname=\"Arial\", fontsize=13];\n\nFor each reaction step:\n\nRepresent every reactant as its own node, there are image of compound, name (not iupac), and mass data in this node .\n\nDraw directed edges from each reactant node to the product node of the same step.\n\nFor multi\u2011step schemes, connect the product node of step N to the reactant node(s) of step N+1.\n\nInclude each step\u2019s reaction conditions as the label on the edge(s) leading into the product node.",
+                "llm": "o4-mini",
+                "tools": [
+                    "draw_scheme"
+                ]
+            }
+        ],
+        "task": [
+            {
+                "name": "Parse",
+                "description": "Parse the procedure into structured JSON.",
+                "worker": "Analyzer"
+            },
+            {
+                "name": "Search",
+                "description": "Search information for steps.",
+                "worker": "Searcher"
+            },
+            {
+                "name": "Calculation",
+                "description": "Search information for steps.",
+                "worker": "Calculator"
+            },
+            {
+                "name": "Scheme_Generation",
+                "description": "Generate scheme.",
+                "worker": "Drawer"
+            }
+        ],
+        "manager": {
+            "name": "Manager",
+            "description": "First, Analyzer Use the procedure_parse to parse the procedure into structured JSON. Second Searcher use search_information to search information for steps. Then calculate mass for each step. Finally, use draw_scheme to draw scheme. If get scheme_image\uff0c terminate this workflow.",
+            "llm": "o4-mini",
+            "tasks": [
+                "Parse",
+                "Search",
+                "Calculation",
+                "Scheme_Generation"
+            ]
+        },
+        "llm": [
+            {
+                "name": "o4-mini",
+                "api_key": "sk-ZfjYtt6PJWcXNJmp17071dE24dE145D3Ac0c2b9d02D73793",
+                "base_url": "https://api.ai-gaochao.cn/v1",
+                "model": "o4-mini-2025-04-16"
+            },
+            {
+                "name": "o3-mini",
+                "base_url": "https://api.ai-gaochao.cn/v1",
+                "model": "o3-mini-2025-01-31",
+                "api_key": "sk-ZfjYtt6PJWcXNJmp17071dE24dE145D3Ac0c2b9d02D73793"
+            }
+        ],
+        "flow": {
+            "description": "I want to generate the multi-step scheme according to Representative procedure for the preparation of 2-amino-1-(3-hydroxy-2,6-dimethylphenyl)-5,6-dimethyl-1H-pyrrolo[2,3-b]pyridine-3-carboxamide (RP-6306, lunresertib drug substance).\n3-Bromo-N-(3-methoxy-2,6-dimethylphenyl)-5,6-dimethylpyridin-2-amine (5)\nA mixture of 3-methoxy-2,6-dimethylaniline (4, 1 equiv), 2,3-dibromo-5,6-dimethyl-pyridine (3, 1.1 equiv), Cs2CO3 (2 equiv), XantPhos (0.06 equiv), Pd(OAc)2 (0.02 equiv), and DME (20 V) is stirred at 85 \u00b0C for 20 h, cooled to 25 \u00b0C, and filtered through a pad of diatomite (0.25 weight relative to the weight of 3). The filter cake is washed with DME (2 \u00d7 5.75 V, then 3.45 V). The combined filtrate and washing liquids are concentrated under vacuum at 45 \u00b0C to 7.5 V, after which water (3 V) is added at 70 \u00b0C. The resulting mixture is cooled to 25 \u00b0C, aged for 12 h, and filtered. The filter cake is washed with a mixture of DME (3.45 V) and water (1.5 V) and dried under nitrogen protection for 30 min at 25 \u00b0C to afford crude 5 as a yellow solid.\nA mixture of crude 5 in ethanol (10 V) is heated at 75\u201378 \u00b0C for 1.5 h, then cooled to 25 \u00b0C, aged for 12 h, and filtered. The filter cake is washed with ethanol (2.5 V) and dried under vacuum to afford 3 as a yellow solid (82%).\n2-Amino-1-(3-methoxy-2,6-dimethylphenyl)-5,6-dimethyl-1H-pyrrolo[2,3-b]-pyridine-3-carbonitrile (2)\nA solution of malononitrile (1.2 equiv) in DME (20 V) under nitrogen is stirred for 5 min at 25 \u00b0C and then cooled to 5 \u00b0C. Sodium tert-butoxide (1.5 equiv) is added in portions. The reactor mixture is warmed up to 25 \u00b0C and aged at that temperature for 30 min. Then, 5 (1 equiv), 1,1\u2019-bis(diphenylphosphino)ferrocene (dppf; 0.02 equiv) and Pd(dppf)Cl2.CH2Cl2 (0.02 equiv) are added. The resulting mixture is heated at 85 \u00b0C for 22 h, cooled to 40 \u00b0C and filtered through a pad of diatomite (0.5 weight relative to the weight of 5). The filter cake is washed with DME (2 \u00d7 5.8 V). The combined filtrate and washing liquid are concentrated under vacuum to approximately 7.5 V, after which water (3 V) is added. The resulting suspension is heated at 65 \u00b0C for 1.5 h, then cooled to 25 \u00b0C, aged for 13 h, and filtered. The filter cake is washed with a mixture of DME (2.75 V) and water (1.2 V) and dried under nitrogen protection for 45 min at 25 \u00b0C to afford crude 2 as an off-white solid, which is suspended in 2-propanol (9 V) and heated at 80 \u00b0C for 35 min. The mixture is cooled to 23 \u00b0C, aged for 3 h, and filtered. The filter cake is washed with 2-propanol (2.5 V) and dried under vacuum to afford 2 as a white solid (74%).\n2-amino-1-(3-hydroxy-2,6-dimethylphenyl)-5,6-dimethyl-1H-pyrrolo[2,3-b]pyridine-3-carboxamide (8)\nA mixture of 2 (1 equiv), (R)-CSA (1 equiv), and anisole (20 V) is heated at 85 \u00b0C for 1 h and cooled to 45 \u00b0C, after which crystal seeds (0.0012 weight relative to the weight of 2) are added. The mixture is stirred at 50 \u00b0C for 5 h, is cooled to 10 \u00b0C at a cooling rate of 10 \u00b0C/h and aged at this temperature for \u223c16 h. The suspension is filtered, and the filter cake is washed with anisole (2 V) and dried on the filter or centrifuged for 1 h to afford wet crude 8. A suspension of crude 8 in anisole (13.8 V) is stirred at 25 \u00b0C for 5 min, heated at 85 \u00b0C for 1.5 h, cooled to 10 \u00b0C, and subsequently aged at this temperature for 16 h. The suspension is filtered, and the filter cake is washed with anisole and dried under vacuum to afford 8 as an off-white solid (42%) with a chiral purity of 97.4%.\n2-amino-1-(3-hydroxy-2,6-dimethylphenyl)-5,6-dimethyl-1H-pyrrolo[2,3-b]pyridine-3-carboxamide (RP-6306)\nTo a mixture of methanesulfonic acid (6.92 w/w) and water (0.064 w/w, total water content 1.60% w/w) is added 8 (1 equiv) in 16 portions at 44 \u00b0C. Stirring is continued at this temperature for 8 h, after which the reaction mixture is cooled down to 20 \u00b0C and DL-Methionine (4 equiv) is added. The resulting mixture is heated at 75 \u00b0C for 20 h, cooled to 20 \u00b0C and then slowly added to precooled (5 \u00b0C) water (25 V). The quenched mixture is diluted with water (5 V) and 2-MeTHF (3.5 V). The pH is adjusted to 7\u20139 by addition of aqueous 30% NaOH solution. The suspension is aged at 30 \u00b0C for 40 min and at 20 \u00b0C for 12 h and filtered. The filter cake is washed with water (3 \u00d7 5 V) and dried under vacuum to give a brown solid. A suspension of the above solid in THF (4.5 V) is heated at 65\u201370 \u00b0C for 30 min, then cooled to 0 \u00b0C, aged for 22 h, and filtered. The filter cake is washed with THF (2 \u00d7 0.55 V) and dried under vacuum to afford crude RP-6306 (100%) as a light brown solid.\nTo crude RP-6306 in methanol (12.6 V) is added activated carbon (0.1 weight relative to the weight of crude RP-6306). The suspension is stirred at 25 \u00b0C for 10 min and at 63 \u00b0C for 1.5 h, cooled down to 50 \u00b0C and filtered to remove insoluble matter. The filter cake is washed with methanol (2.5 V). Water (0.5 V) is added slowly to the combined filtrate and washing liquid at 55 \u00b0C. The resulting mixture is cooled to 5 \u00b0C, after which a suspension of crystal seeds (1% of weight of crude RP-6306) in MeOH/water (4:5 v/v, 1 V) is charged. Stirring is continued at 5 \u00b0C for 3 h, which is followed by the addition of water (14.7 V) at 5 \u00b0C over a period of 6 h. The resulting suspension is aged at this temperature for 10 h and filtered. The filter cake is washed with a mixture of MeOH (0.85 V) and water (0.75 V) twice and dried under vacuum to afford RP-6306 as a yellowish to off-white solid (76%) with a purity of >99.9% and chiral purity of 99.7%. 1H NMR (400 Hz, DMSO-d6): \u03b4 9.46 (s, 1H), 7.78 (s, 1H), 7.01 (d, J = 8.3 Hz, 1H), 6.89 (d, J = 8.3 Hz, 1H), 6.69 (bs, 2H), 6.62 (bs, 2H), 2.28 (s, 3H), 2.21 (s, 3H), 1.71 (s, 3H), 1.63 (s, 3H); 13C NMR (400 Hz, DMSO-d6): \u03b4 168.9, 154.6, 152.2, 145.5, 143.9, 133.1, 128.2, 127.5, 125.6, 124.4, 124.1, 116.5, 115.9, 83.5, 22.2, 19.3, 17.3, 11.3; M/Z observed: 325.1688; calculated for [C18H20N4O2 + H]: 325.1665.+.",
+            "manager": "Manager",
+            "max_inter": 4,
+            "summary": "o4-mini"
+        },
+        "name": "scheme",
+        "tools": {
+            "procedure_parse": {
+                "type": "function",
+                "function": {
+                    "name": "procedure_parse",
+                    "description": "Parse a multi-step synthetic procedure into structured JSON",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "steps": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "step_number": {
+                                            "type": "number",
+                                            "description": "Sequence number of this synthetic step"
+                                        },
+                                        "reactants": {
+                                            "type": "array",
+                                            "description": "List of most main and key starting materials (only those has number refer) for this step",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "name": {
+                                                        "type": "string",
+                                                        "description": "Common or trivial name of the compound, or number refer"
+                                                    },
+                                                    "iupac": {
+                                                        "type": "string",
+                                                        "description": "IUPAC systematic name of the compound"
+                                                    },
+                                                    "amount_mol": {
+                                                        "type": "number",
+                                                        "description": "Quantity used, in moles, after step 1 use last step's moles."
+                                                    }
+                                                },
+                                                "required": [
+                                                    "name",
+                                                    "iupac",
+                                                    "amount_mol"
+                                                ]
+                                            }
+                                        },
+                                        "product": {
+                                            "type": "object",
+                                            "description": "product of this step",
+                                            "properties": {
+                                                "name": {
+                                                    "type": "string",
+                                                    "description": "Common or trivial name of the product, or number refer"
+                                                },
+                                                "iupac": {
+                                                    "type": "string",
+                                                    "description": "IUPAC systematic name of the product"
+                                                },
+                                                "amount_mol": {
+                                                    "type": "number",
+                                                    "description": "Quantity isolated calculate by yield, in moles"
+                                                }
+                                            },
+                                            "required": [
+                                                "name",
+                                                "iupac",
+                                                "amount_mol"
+                                            ]
+                                        },
+                                        "yield_percent": {
+                                            "type": "number",
+                                            "description": "Isolated yield percentage for this step"
+                                        },
+                                        "condition": {
+                                            "type": "string",
+                                            "description": "reagents exclude in reactants key, solvent, temperature, time, etc. must described in brief, phrase instead of sentences."
+                                        }
+                                    },
+                                    "required": [
+                                        "step_number",
+                                        "reactants",
+                                        "product",
+                                        "yield_percent",
+                                        "condition"
+                                    ]
+                                }
+                            }
+                        },
+                        "required": [
+                            "steps"
+                        ]
+                    }
+                }
+            },
+            "search_information": {
+                "type": "function",
+                "function": {
+                    "name": "search_information",
+                    "description": "search information for step.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "flow_id": {
+                                "type": "string",
+                                "description": "The id of the flow."
+                            }
+                        },
+                        "required": [
+                            "flow_id"
+                        ]
+                    }
+                }
+            },
+            "mass_calculate": {
+                "type": "function",
+                "function": {
+                    "name": "mass_calculate",
+                    "description": "calculate mass for each step.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "flow_id": {
+                                "type": "string",
+                                "description": "The id of the flow."
+                            }
+                        },
+                        "required": [
+                            "flow_id"
+                        ]
+                    }
+                }
+            },
+            "draw_scheme": {
+                "type": "function",
+                "function": {
+                    "name": "draw_scheme",
+                    "description": "Generate scheme.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "flow_id": {
+                                "type": "string",
+                                "description": "The id of the flow."
+                            },
+                            "dot_code": {
+                                "type": "string",
+                                "description": "The code to generate scheme. only output code string without any other content."
+                            }
+                        },
+                        "required": [
+                            "flow_id",
+                            "dot_code"
+                        ]
+                    }
+                }
+            }
+        }
+    },
+    {
+        "worker": [
+            {
+                "name": "Analyzer",
+                "description": "Parse a multi-step synthetic procedure into structured JSON. In this process, you need to calculate the molar amount of each reactant and product at each step based on equivalence and yield. If the product from the previous step is the reactant from the next step, the molar amount of both should be consistent",
+                "llm": "o4-mini"
+            },
+            {
+                "name": "Supporter",
+                "description": "Search information for steps",
+                "llm": "o4-mini",
+                "tools": ["MW_density_search"]
+            },
+            {
+                "name": "Calculator",
+                "description": "calculate mass for each step",
+                "llm": "o4-mini",
+                "tools": ["pmi_calc"]
+            },
+            {
+                "name": "Parser",
+                "description": "calculate mass for each step",
+                "llm": "o4-mini",
+                "tools": ["Parser_tool"]
+            }
+        ],
+        "task": [
+            {
+                "name": "Completeness Screening",
+                "description": "Parse the procedure into structured JSON.",
+                "worker": "Analyzer"
+            },
+            {
+                "name": "Supplement",
+                "description": "Search information for steps.",
+                "worker": "Supporter"
+            },
+            {
+                "name": "PMI Calculation",
+                "description": "Search information for steps.",
+                "worker": "Calculator"
+            },
+             {
+                "name": "Text parse",
+                "description": "Parse the procedure into structured JSON.",
+                "worker": "Parser"
+            }
+        ],
+        "manager": {
+            "name": "Manager",
+            "description": "First, Analyzer Use the procedure_parse to parse the procedure into structured JSON. Second Searcher use search_information to search information for steps. Then calculate mass for each step. Finally, use draw_scheme to draw scheme. If get scheme_image\uff0c terminate this workflow.",
+            "llm": "o4-mini",
+            "tasks": [
+                "Completeness Screening",
+                "Supplement",
+                "PMI Calculation"
+            ]
+        },
+        "name": "PMI"
+    },
+    {
+        "worker": [
+            {
+                "name": "DesignWorker",
+                "description": "This worker handles the creation and updating of the optimization task. For the initial stage, it calls the create_optimization_task function to set up the optimization objectives, constraints, and initial design space. If evaluation indicates that design space expansion is needed, it calls the expand_space function to update continuous variable ranges. Each task is explicitly linked to its tool: create_optimization_task for initial setup and expand_space for design space expansion.",
+                "llm": "o3-mini",
+                "tools": [
+                    "create_optimization_task",
+                    "expand_space"
+                ]
+            },
+            {
+                "name": "BayesianOptimizer",
+                "description": "This worker generates candidate experimental conditions by calling the get_next_exps_bo function. It uses the Bayesian optimization algorithm to propose the next batch of q experiments based on past results and the current surrogate model.",
+                "llm": "o3-mini",
+                "tools": [
+                    "get_next_exps_llm"
+                ]
+            },
+            {
+                "name": "ExperimentRunner",
+                "description": "This worker executes experiments by calling the run_exp function on each candidate condition. It runs the experiments in parallel (up to q per round) and gathers outcome data for subsequent evaluation.",
+                "llm": "o3-mini",
+                "tools": [
+                    "run_exp"
+                ]
+            },
+            {
+                "name": "Evaluator",
+                "description": "At the evaluation stage, this worker analyzes the history of optimization cycles. Evaluation principle: First, evaluate if there has been any improvement in the optimization targets after several cycles of get_next_exps-experiment-evaluation cycles based on the memory. If improvements have been observed, continue the cycles. If no improvement has been observed, then assess whether the design space needs to be expanded or if the optimization process should be terminated. Design Space Expansion (update optimization task): If there are one or more continuous variables in the optimal condition are the extremum of their value ranges, you could expand the design space. If the optimal condition is not in the boundary, do not expand the space. Termination of Optimization: If no significant improvement has been observed in the optimization targets after a reasonable number of cycles, and further exploration is unlikely to yield substantial gains, consider terminating the optimization process. The absence of stability or convergence alone is not sufficient to continue the optimization.",
+                "llm": "o3-mini",
+                "max_output": 50
+            }
+        ],
+        "task": [
+            {
+                "name": "CreateOptimizationTask",
+                "description": "Initialize the optimization by calling the create_optimization_task function. This sets up objectives, constraints, and the initial design space.",
+                "worker": "DesignWorker"
+            },
+            {
+                "name": "GetNextExperiments",
+                "description": "Generate the next batch of candidate conditions by calling the get_next_exps_bo function, leveraging the Bayesian optimization algorithm.",
+                "worker": "BayesianOptimizer"
+            },
+            {
+                "name": "RunExperiments",
+                "description": "Execute the proposed candidate experiments by calling the run_exp function, running up to q experiments in parallel and collecting results.",
+                "worker": "ExperimentRunner"
+            },
+            {
+                "name": "EvaluateOptimization",
+                "description": "Analyze outcomes and memory to assess improvement and decide whether to continue, expand the design space, or terminate the optimization.",
+                "worker": "Evaluator"
+            },
+            {
+                "name": "ExpandDesignSpace",
+                "description": "If evaluation indicates boundary conditions in optimal variables, call expand_space to update the design space and then re-enter the optimization cycle.",
+                "worker": "DesignWorker"
+            }
+        ],
+        "manager": {
+            "name": "OptimizationManager",
+            "description": "The manager oversees the entire optimization workflow. It sequences tasks: first initializing the optimization, then iteratively generating experiments, executing them, and evaluating results. Based on evaluation outcomes, it may instruct design space expansion and re-enter the experiment loop. It allocates tasks to workers, monitors resource usage, and makes high-level decisions on optimization progress, workflow adjustments, and termination conditions.",
+            "llm": "o3-mini",
+            "tasks": [
+                "CreateOptimizationTask",
+                "GetNextExperiments",
+                "RunExperiments",
+                "EvaluateOptimization",
+                "ExpandDesignSpace"
+            ]
+        },
+        "llm": [
+            {
+                "name": "o3-mini",
+                "api_key": "sk-ZfjYtt6PJWcXNJmp17071dE24dE145D3Ac0c2b9d02D73793",
+                "base_url": "https://api.ai-gaochao.cn/v1",
+                "model": "o3-mini-2025-01-31"
+            }
+        ],
+        "name": "Optimization_categorical",
+        "tools": {
+            "create_optimization_task": {
+                "type": "function",
+                "function": {
+                    "name": "create_optimization_task",
+                    "description": "Create an optimization task JSON file with the provided details and store it locally.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "reaction": {
+                                "type": "string",
+                                "description": "A string that represents the name or description of the chemical reaction being optimized."
+                            },
+                            "design_space": {
+                                "type": "array",
+                                "description": "A list of design parameters that define the space to explore during optimization.",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "name": {
+                                            "type": "string",
+                                            "description": "The name of the parameter (e.g., \"temperature\", \"reaction time\")."
+                                        },
+                                        "type": {
+                                            "type": "string",
+                                            "description": "The type of the parameter, either \"continuous\" or \"categorical\"."
+                                        },
+                                        "range": {
+                                            "type": "array",
+                                            "description": "Defines the possible values for this parameter. For continuous parameters, a numeric range; for categorical parameters, a list of discrete options.",
+                                            "items": {
+                                                "type": [
+                                                    "number",
+                                                    "string"
+                                                ]
+                                            }
+                                        }
+                                    },
+                                    "required": [
+                                        "name",
+                                        "type",
+                                        "range"
+                                    ]
+                                }
+                            },
+                            "goal": {
+                                "type": "array",
+                                "description": "A list of optimization goals, each with a name and a direction (maximize or minimize).",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "name": {
+                                            "type": "string",
+                                            "description": "The name of the optimization target (e.g., \"yield\", \"selectivity\")."
+                                        },
+                                        "target": {
+                                            "type": "string",
+                                            "description": "Specifies whether to \"max\" (maximize) or \"min\" (minimize) the value of the goal.",
+                                            "enum": [
+                                                "max",
+                                                "min"
+                                            ]
+                                        }
+                                    },
+                                    "required": [
+                                        "name",
+                                        "target"
+                                    ]
+                                }
+                            },
+                            "num_of_init": {
+                                "type": "integer",
+                                "description": "The number of initial experiments to conduct before optimization begins."
+                            },
+                            "q": {
+                                "type": "integer",
+                                "description": "The number of experiments to be run per optimization round."
+                            },
+                            "condition": {
+                                "type": "array",
+                                "description": "An initially empty list that will store the experimental conditions generated during optimization.",
+                                "items": {}
+                            },
+                            "outcomes": {
+                                "type": "array",
+                                "description": "An initially empty list that will store the results of the experiments conducted during optimization.",
+                                "items": {}
+                            }
+                        },
+                        "required": [
+                            "reaction",
+                            "design_space",
+                            "goal",
+                            "num_of_init",
+                            "q",
+                            "condition",
+                            "outcomes"
+                        ]
+                    }
+                }
+            },
+            "expand_space": {
+                "type": "function",
+                "function": {
+                    "name": "expand_space",
+                    "description": "Expands the design space for an optimization task.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "design_space": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "name": {
+                                            "type": "string",
+                                            "description": "The name of the parameter to update."
+                                        },
+                                        "type": {
+                                            "type": "string",
+                                            "enum": [
+                                                "continuous",
+                                                "categorical"
+                                            ],
+                                            "description": "The parameter type ('continuous' or 'categorical')."
+                                        },
+                                        "range": {
+                                            "type": "array",
+                                            "description": "The new range or options for this parameter.",
+                                            "items": {}
+                                        }
+                                    },
+                                    "required": [
+                                        "name",
+                                        "type",
+                                        "range"
+                                    ]
+                                },
+                                "description": "A list of parameter definitions to update in the design space."
+                            }
+                        },
+                        "required": [
+                            "design_space"
+                        ]
+                    }
+                }
+            },
+            "get_next_exps_llm": {
+                "type": "function",
+                "function": {
+                    "name": "get_next_exps_llm",
+                    "description": "Analyze the current optimization data and generate new candidate experiment conditions.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "flow_id": {
+                                "type": "string",
+                                "description": "Unique identifier for the optimization flow. This will be used to locate and read the JSON file at: data/{flow_id}.json"
+                            },
+                            "next_exps": {
+                                "type": "array",
+                                "description": "A list of proposed new experiment conditions, where each inner list corresponds to one experiment. The order must match the variable order defined in the design space; values can be categorical (string) or continuous (number).",
+                                "items": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": [
+                                            "string",
+                                            "number"
+                                        ]
+                                    }
+                                }
+                            }
+                        },
+                        "required": [
+                            "flow_id",
+                            "next_exps"
+                        ]
+                    }
+                }
+            },
+            "run_exp": {
+                "type": "function",
+                "function": {
+                    "name": "run_exp",
+                    "description": "Run the candidate experiments and get outcomes.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "flow_id": {
+                                "type": "string",
+                                "description": "The ID of the flow."
+                            }
+                        },
+                        "required": [
+                            "flow_id"
+                        ]
+                    }
+                }
+            }
+        }
+    },
+    {
+        "worker": [
+            {
+                "name": "Text_Parser",
+                "description": "Responsible for splitting input text according to different situations. Uses the TextSplitter tool to perform tokenization and segmentation of raw documents, ensuring that text is divided into logical units for downstream retrieval.",
+                "llm": "o4-mini",
+                "tools": [
+                    "split_chunk"
+                ]
+            },
+            {
+                "name": "Retriever",
+                "description": "When task is Retrieval_Procedure, call procedure_extract tool. \n\n When task is Retrieval_Product, call product_extract tool",
+                "llm": "o4-mini",
+                "tools": [
+                    "product_extract",
+                    "procedure_extract"
+                ]
+            },
+            {
+                "name": "Generator",
+                "description": "Responsible for generating or processing extracted data after the RAG flow. Uses the LLM directly to assemble final outputs, integrate information from previous steps, and produce user-facing summaries or answers.",
+                "llm": "o4-mini",
+                "tools": [
+                    "find_similar"
+                ]
+            },
+            {
+                "name": "Evaluator",
+                "description": "You are responsible for evaluating the experimental procedure retrieved for a similar product. First, review the 'procedure text' and 'query history' in memory data to determine whether it contains all necessary steps and reagents\u2014including cross-references or undefined letter- or number-referenced reagents (including unusual abbreviations for reagents) such as \u201cgeneral procedure (of modification)\u201d, \u201cA1,\u201d \u201cLigand 2\u201d, \u201cPC,\u201d etc. Notably, Focus both on the synthesis and workup steps for that similar product\u2014not on any other reagents\u2019 syntheses, or characterization.  If the procedure is incomplete or still refers to undefined sections, identify and return the most critical reference term or keywords that must be retrieved next. The term or keywords must be one type of term and exclude those similar with words in the query history data!!!!. If the procedure is fully self-contained and no missing references remain, indicate that the extraction is complete and suggest manager terminate the workflow.",
+                "llm": "o4-mini",
+                "max_output": 50
+            }
+        ],
+        "task": [
+            {
+                "name": "Segment",
+                "description": "Split the user-provided text into segments based on different situational criteria (headings, paragraphs, or domain-specific markers). This task prepares the text for retrieval by ensuring logical units are preserved.",
+                "worker": "Text_Parser"
+            },
+            {
+                "name": "Product_Collect",
+                "description": "Extract the IUPAC names of all compounds that synthesized in the context.",
+                "worker": "Retriever"
+            },
+            {
+                "name": "Retrieval_Procedure",
+                "description": "Extract synthesis procedure for the similar product found in the literature instead of the product in goal.",
+                "worker": "Retriever"
+            },
+            {
+                "name": "Similarity",
+                "description": "Generate final synthesized output based on validated retrieval results. This task composes the user-facing response or report by integrating extracted data and applying domain logic.",
+                "worker": "Generator"
+            },
+            {
+                "name": "Evaluation",
+                "description": "Evaluate retrieved snippets to check if the required information or references are present. If not, flag and request additional retrieval.",
+                "worker": "Evaluator"
+            }
+        ],
+        "manager": {
+            "name": "RAGManager",
+            "description": "First, use the Splitter to tokenize the entire document into discrete units. Next, complete Retrieval_Product to retrieve every product mention from the literature. Then, invoke find_similar to perform a similarity search. After you\u2019ve identified the most similar product, complete Retrieval_Procedure task to pull in the full experimental procedure for the most similar product. Finally, enter an iterative loop of Retrieval_Procedure \u2192 evaluation \u2192 Retrieval_Procedure: after each retrieval pass, evaluate the completeness and accuracy of the extracted procedures, then feed your evaluation results back into procedure_extract to refine and improve the procedure retrieval until it meets your quality criteria.",
+            "llm": "o4-mini",
+            "tasks": [
+                "Segment",
+                "Product_Collect",
+                "Retrieval_Procedure",
+                "Similarity",
+                "Evaluation"
+            ]
+        },
+        "llm": [
+            {
+                "name": "o4-mini",
+                "api_key": "sk-ZfjYtt6PJWcXNJmp17071dE24dE145D3Ac0c2b9d02D73793",
+                "base_url": "https://api.ai-gaochao.cn/v1",
+                "model": "gpt-5"
+            },
+            {
+                "name": "o3-mini",
+                "api_key": "sk-ZfjYtt6PJWcXNJmp17071dE24dE145D3Ac0c2b9d02D73793",
+                "base_url": "https://api.ai-gaochao.cn/v1",
+                "model": "o3-mini-2025-01-31"
+            }
+        ],
+        "flow": {
+            "description": "I want to find the possible procedure of C1(OCCC)C=CC(N(C(=O)C)C)=CC=1 in D:/llm4optimization/document/test.md.",
+            "manager": "RAGManager",
+            "max_inter": 12,
+            "summary": "o4-mini"
+        },
+        "name": "Literature Extraction including workup",
+        "tools": {
+            "split_chunk": {
+                "type": "function",
+                "function": {
+                    "name": "split_chunk",
+                    "description": "Split a markdown document into structured chunks based on flow_id and file path",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "flow_id": {
+                                "type": "string",
+                                "description": "Unique identifier of the workflow"
+                            },
+                            "file_path": {
+                                "type": "string",
+                                "description": "Absolute path to the file to be chunked"
+                            }
+                        },
+                        "required": [
+                            "flow_id",
+                            "file_path"
+                        ]
+                    }
+                }
+            },
+            "product_extract": {
+                "type": "function",
+                "function": {
+                    "name": "product_extract",
+                    "description": "extract product name.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "flow_id": {
+                                "type": "string",
+                                "description": "The id of the flow."
+                            }
+                        },
+                        "required": [
+                            "flow_id"
+                        ]
+                    }
+                }
+            },
+            "find_similar": {
+                "type": "function",
+                "function": {
+                    "name": "find_similar",
+                    "description": "find similar product with target product",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "flow_id": {
+                                "type": "string",
+                                "description": "Unique identifier of the workflow"
+                            },
+                            "target_product": {
+                                "type": "string",
+                                "description": "target product user want to synthesize"
+                            }
+                        },
+                        "required": [
+                            "flow_id",
+                            "target_product"
+                        ]
+                    }
+                }
+            },
+            "procedure_extract": {
+                "type": "function",
+                "function": {
+                    "name": "procedure_extract",
+                    "description": "Extract synthesis procedure for the similar product found in the literature instead of the product in goal",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "flow_id": {
+                                "type": "string",
+                                "description": "Unique identifier of the workflow"
+                            },
+                            "query_word": {
+                                "type": "string",
+                                "description": "The key term to search in the existing procedure given by Evaluator, If the term is an abbreviation, its type can be added. e.g. L1 \u2192 Ligand L1"
+                            },
+                            "chunk_count": {
+                                "type": "number",
+                                "description": "Number of text chunks to match: A. use a small value (e.g. ~3) when 'query_word' is the IUPAC name (a standardized method for naming chemical compound, Complex full name, like '4-bromo-1-methylindazole and 2-methoxyethanol') of similar products, \n\n B. a large value (e.g. ~20) when 'query_word' is frequent referenced procedures or reagents terms like 'general procedure', 'ligand 1', 'PC', 'catalyst'. \n\n C.increase it (e.g. number of search * 20) on repeated searches of the similar query_word"
+                            }
+                        },
+                        "required": [
+                            "flow_id",
+                            "query_word",
+                            "chunk_count"
+                        ]
+                    }
+                }
+            }
+        }
+    },
+    {
+        "name": "Literature Extraction Test",
+        "worker": [
+            {
+                "name": "SplitWorker",
+                "description": "SplitWorker is responsible for segmenting the full paper or patent text into retrieval-ready units by headings, paragraphs, and domain markers such as \u201cGeneral procedure,\u201d preparing content for downstream extraction tasks.",
+                "llm": "o4-mini",
+                "tools": [
+                    "split_chunk"
+                ]
+            },
+            {
+                "name": "ExtractWorker",
+                "description": "ExtractWorker handles chemical entity extraction. When task is ProductExtraction, use product_extract; when task is ProcedureExtraction, use procedure_extract. It enumerates all synthesized compounds in IUPAC format and retrieves the complete synthesis procedure for the similar product.",
+                "llm": "o4-mini",
+                "tools": [
+                    "product_extract",
+                    "procedure_extract"
+                ]
+            },
+            {
+                "name": "SimilarityWorker",
+                "description": "SimilarityWorker matches the user\u2019s target description or SMILES against the extracted products to identify the most similar compound, returning the top match with its rationale.",
+                "llm": "o4-mini",
+                "tools": [
+                    "find_similar"
+                ]
+            },
+            {
+                "name": "EvaluateWorker",
+                "description": "EvaluateWorker reviews the retrieved experimental procedure for the similar product to ensure it is complete and internally consistent. It examines both the procedure text and the query history in memory to verify that all synthesis steps and reagent definitions are present and properly linked. It checks for any cross-referenced or undefined reagents or procedures, including abbreviated or numbered references such as \u201cgeneral procedure (mod)\u201d, \u201cA1\u201d, \u201cLigand 2\u201d, or \u201cPC\u201d. It focuses exclusively on the synthesis steps of the similar product and excludes unrelated content such as reagent syntheses, workup, or characterization. If the procedure is incomplete or contains undefined references, it identifies and outputs the single most critical missing term or keyword that must be retrieved next, ensuring the term represents only one reference type and does not duplicate or overlap with any entries in the query history. If the procedure is complete and self-contained, it clearly indicates that the extraction is finished and suggests the manager terminate the workflow. The procedure_extract \u2192 evaluation loop continues until the Evaluator confirms the procedure is fully self-contained; when complete, the Evaluator advises termination.",
+                "llm": "o4-mini",
+                "max_output": 50
+            }
+        ],
+        "task": [
+            {
+                "name": "SplitChunk",
+                "description": "Segment the full paper or patent text into retrieval-ready units by headings, paragraphs, and domain markers, preparing content for downstream extraction tasks.",
+                "worker": "SplitWorker"
+            },
+            {
+                "name": "ProductExtraction",
+                "description": "Enumerate all compounds actually synthesized in the context using IUPAC names, extracting them from segmented text for similarity matching.",
+                "worker": "ExtractWorker"
+            },
+            {
+                "name": "SimilarityMatching",
+                "description": "Match the user\u2019s target description or SMILES string against the extracted products to identify the most similar compound, retaining the top match and its rationale.",
+                "worker": "SimilarityWorker"
+            },
+            {
+                "name": "ProcedureExtraction",
+                "description": "Retrieve the complete synthesis procedure for the most similar product identified, extracting detailed step-by-step instructions.",
+                "worker": "ExtractWorker"
+            },
+            {
+                "name": "EvaluateProcedure",
+                "description": "Review the retrieved synthesis procedure for completeness and internal consistency, checking reagent definitions and synthesis steps, and output either the termination signal or the critical missing term for further retrieval.",
+                "worker": "EvaluateWorker"
+            }
+        ],
+        "manager": {
+            "name": "ExtractionManager",
+            "description": "The manager orchestrates the workflow by first invoking SplitChunk to segment the text. Then it calls ProductExtraction on the segmented units to identify synthesized compounds. Next, it executes SimilarityMatching to find the most similar product to the user\u2019s target. With the similar product fixed, it initiates ProcedureExtraction to retrieve its complete synthesis procedure. After retrieval, the manager runs the EvaluateProcedure task. If EvaluateProcedure indicates a missing reference term, the manager loops back to ProcedureExtraction with the new term and reissues EvaluateProcedure, repeating the procedure_extract \u2192 evaluation cycle until EvaluateProcedure signals the procedure is fully self-contained. Upon completion, the manager terminates the workflow.",
+            "llm": "o4-mini",
+            "tasks": [
+                "SplitChunk",
+                "ProductExtraction",
+                "SimilarityMatching",
+                "ProcedureExtraction",
+                "EvaluateProcedure"
+            ]
+        },
+        "llm": [
+            {
+                "name": "o4-mini",
+                "api_key": "sk-ZfjYtt6PJWcXNJmp17071dE24dE145D3Ac0c2b9d02D73793",
+                "base_url": "https://api.ai-gaochao.cn/v1",
+                "model": "o4-mini-2025-04-16"
+            }
+        ],
+        "tools": {
+            "split_chunk": {
+                "type": "function",
+                "function": {
+                    "name": "split_chunk",
+                    "description": "Split the input document into text chunks and save to RAG data folder.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "flow_id": {
+                                "type": "string",
+                                "description": "The ID of the flow."
+                            },
+                            "file_path": {
+                                "type": "string",
+                                "description": "The path to the source document."
+                            }
+                        },
+                        "required": [
+                            "flow_id",
+                            "file_path"
+                        ]
+                    }
+                }
+            },
+            "product_extract": {
+                "type": "function",
+                "function": {
+                    "name": "product_extract",
+                    "description": "Extract all the product name from the literature.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "flow_id": {
+                                "type": "string",
+                                "description": "The id of the flow."
+                            }
+                        },
+                        "required": [
+                            "flow_id"
+                        ]
+                    }
+                }
+            },
+            "procedure_extract": {
+                "type": "function",
+                "function": {
+                    "name": "procedure_extract",
+                    "description": "Extract synthesis procedure (excluding Workup procedure) for the similar product found in the literature based on a search term.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "flow_id": {
+                                "type": "string",
+                                "description": "Unique identifier of the workflow."
+                            },
+                            "query_word": {
+                                "type": "string",
+                                "description": "The key term to search in the existing procedure given by Evaluator. If the term is an abbreviation, its type can be added (e.g., L1 \u2192 Ligand L1)."
+                            },
+                            "chunk_count": {
+                                "type": "number",
+                                "description": "Number of text chunks to retrieve:\n  A. Use a small value (e.g., ~3) when 'query_word' is the IUPAC name (standardized naming: e.g., \"4-bromo-1-methylindazole\").\n  B. Use a larger value (e.g., ~20) when 'query_word' refers to frequent terms like \"general procedure\", \"ligand 1\", \"PC\", \"catalyst\".\n  C. Increase further (e.g., number of searches \u00d7 20) on repeated searches for similar 'query_word's."
+                            }
+                        },
+                        "required": [
+                            "flow_id",
+                            "query_word",
+                            "chunk_count"
+                        ]
+                    }
+                }
+            },
+            "find_similar": {
+                "type": "function",
+                "function": {
+                    "name": "find_similar",
+                    "description": "Find similar product with target product.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "flow_id": {
+                                "type": "string",
+                                "description": "Unique identifier of the workflow."
+                            },
+                            "target_product": {
+                                "type": "string",
+                                "description": "Target product user wants to synthesize."
+                            }
+                        },
+                        "required": [
+                            "flow_id",
+                            "target_product"
+                        ]
+                    }
+                }
+            }
+        }
+    },
+    {
+        "worker": [
+            {
+                "name": "Text_Parser",
+                "description": "Responsible for splitting input text according to different situations. Uses the TextSplitter tool to perform tokenization and segmentation of raw documents, ensuring that text is divided into logical units for downstream retrieval.",
+                "llm": "o4-mini",
+                "tools": [
+                    "split_chunk"
+                ]
+            },
+            {
+                "name": "Retriever",
+                "description": "When task is Retrieval_Procedure, call procedure_extract_including_workup tool to extract both synthesis and workup procedures. When task is Retrieval_Product, call product_extract tool",
+                "llm": "o4-mini",
+                "tools": [
+                    "product_extract",
+                    "procedure_extract_including_workup"
+                ]
+            },
+            {
+                "name": "Generator",
+                "description": "Responsible for generating or processing extracted data after the RAG flow. Uses the LLM directly to assemble final outputs, integrate information from previous steps, and produce user-facing summaries or answers.",
+                "llm": "o4-mini",
+                "tools": [
+                    "find_similar"
+                ]
+            },
+            {
+                "name": "Evaluator",
+                "description": "You are responsible for evaluating the experimental procedure retrieved for a similar product. First, review the 'procedure text' and 'query history' in memory data to determine whether it contains all necessary steps, reagents, and workup details\u2014including cross-references or undefined letter- or number-referenced reagents (including unusual abbreviations for reagents) such as \u201cgeneral procedure (of modification)\u201d, \u201cA1,\u201d \u201cLigand 2\u201d, \u201cPC,\u201d etc. Focus on both the synthesis and workup steps for that similar product. If the procedure is incomplete or still refers to undefined sections, identify and return the most critical reference term or keywords that must be retrieved next. The term or keywords must be one type of term and exclude those similar with words in the query history data. If the procedure is fully self-contained and no missing references remain, indicate that the extraction is complete and suggest manager terminate the workflow.",
+                "llm": "o4-mini",
+                "max_output": 50
+            }
+        ],
+        "task": [
+            {
+                "name": "Segment",
+                "description": "Split the user-provided text into segments based on different situational criteria (headings, paragraphs, or domain-specific markers). This task prepares the text for retrieval by ensuring logical units are preserved.",
+                "worker": "Text_Parser"
+            },
+            {
+                "name": "Product_Collect",
+                "description": "Extract the IUPAC names of all compounds that synthesized in the context.",
+                "worker": "Retriever"
+            },
+            {
+                "name": "Retrieval_Procedure",
+                "description": "Extract synthesis procedure for the similar product found in the literature instead of the product in goal.",
+                "worker": "Retriever"
+            },
+            {
+                "name": "Similarity",
+                "description": "Generate final synthesized output based on validated retrieval results. This task composes the user-facing response or report by integrating extracted data and applying domain logic.",
+                "worker": "Generator"
+            },
+            {
+                "name": "Evaluation",
+                "description": "Evaluate retrieved snippets to check if the required information or references are present. If not, flag and request additional retrieval.",
+                "worker": "Evaluator"
+            }
+        ],
+        "manager": {
+            "name": "RAGManager",
+            "description": "First, use the Splitter to tokenize the entire document into discrete units. Next, complete Retrieval_Product to retrieve every product mention from the literature. Then, invoke find_similar to perform a similarity search. After you\u2019ve identified the most similar product, complete Retrieval_Procedure task to pull in the full experimental procedure\u2014including both synthesis and workup stages\u2014for the most similar product using the procedure_extract_including_workup tool. Finally, enter an iterative loop of Retrieval_Procedure \u2192 Evaluation \u2192 Retrieval_Procedure: after each retrieval pass, evaluate the completeness and accuracy of the extracted procedures (including workup), then feed your evaluation results back into procedure_extract_including_workup to refine and improve the procedure retrieval until it meets your quality criteria.",
+            "llm": "o4-mini",
+            "tasks": [
+                "Segment",
+                "Product_Collect",
+                "Retrieval_Procedure",
+                "Similarity",
+                "Evaluation"
+            ]
+        },
+        "llm": [
+            {
+                "name": "o4-mini",
+                "api_key": "sk-ZfjYtt6PJWcXNJmp17071dE24dE145D3Ac0c2b9d02D73793",
+                "base_url": "https://api.ai-gaochao.cn/v1",
+                "model": "gpt-5"
+            }
+        ],
+        "name": "Literature Extraction has workup",
+        "tools": {
+            "split_chunk": {
+                "type": "function",
+                "function": {
+                    "name": "split_chunk",
+                    "description": "Split the input document into text chunks and save to RAG data folder.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "flow_id": {
+                                "type": "string",
+                                "description": "The ID of the flow."
+                            },
+                            "file_path": {
+                                "type": "string",
+                                "description": "The path to the source document."
+                            }
+                        },
+                        "required": [
+                            "flow_id",
+                            "file_path"
+                        ]
+                    }
+                }
+            },
+            "product_extract": {
+                "type": "function",
+                "function": {
+                    "name": "product_extract",
+                    "description": "Extract all the product name from the literature.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "flow_id": {
+                                "type": "string",
+                                "description": "The id of the flow."
+                            }
+                        },
+                        "required": [
+                            "flow_id"
+                        ]
+                    }
+                }
+            },
+            "procedure_extract_including_workup": {
+                "type": "function",
+                "function": {
+                    "name": "procedure_extract_including_workup",
+                    "description": "Extract synthesis and workup procedure for the similar product found in the literature instead of the product in goal.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "flow_id": {
+                                "type": "string",
+                                "description": "Unique identifier of the workflow."
+                            },
+                            "query_word": {
+                                "type": "string",
+                                "description": "The key term to search in the existing procedure given by Evaluator. If the term is an abbreviation, its type can be added. e.g., L1 \u2192 Ligand L1."
+                            },
+                            "chunk_count": {
+                                "type": "number",
+                                "description": "Number of text chunks to match: A. Use a small value (e.g., ~3) when 'query_word' is the IUPAC name (a standardized naming method, e.g., \"4-bromo-1-methylindazole\", \"2-methoxyethanol\"). B. Use a large value (e.g., ~20) when 'query_word' refers to frequent terms like \"general procedure\", \"ligand 1\", \"PC\", \"catalyst\". C. Increase it (e.g., number of searches \u00d7 20) on repeated searches for similar 'query_word's."
+                            }
+                        },
+                        "required": [
+                            "flow_id",
+                            "query_word",
+                            "chunk_count"
+                        ]
+                    }
+                }
+            },
+            "find_similar": {
+                "type": "function",
+                "function": {
+                    "name": "find_similar",
+                    "description": "Find similar product with target product.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "flow_id": {
+                                "type": "string",
+                                "description": "Unique identifier of the workflow."
+                            },
+                            "target_product": {
+                                "type": "string",
+                                "description": "Target product user wants to synthesize."
+                            }
+                        },
+                        "required": [
+                            "flow_id",
+                            "target_product"
+                        ]
+                    }
+                }
+            }
+        }
+    }
+]

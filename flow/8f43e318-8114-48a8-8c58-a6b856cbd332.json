@@ -1,0 +1,188 @@
+{
+    "worker": [
+        {
+            "name": "Text_Parser",
+            "description": "Responsible for splitting input text according to different situations. Uses the TextSplitter tool to perform tokenization and segmentation of raw documents, ensuring that text is divided into logical units for downstream retrieval.",
+            "llm": "o4-mini",
+            "tools": [
+                "split_chunk"
+            ]
+        },
+        {
+            "name": "Retriever",
+            "description": "When task is Retrieval_Procedure, call procedure_extract_including_workup tool to extract both synthesis and workup procedures. When task is Retrieval_Product, call product_extract tool",
+            "llm": "o4-mini",
+            "tools": [
+                "product_extract",
+                "procedure_extract_including_workup"
+            ]
+        },
+        {
+            "name": "Generator",
+            "description": "Responsible for generating or processing extracted data after the RAG flow. Uses the LLM directly to assemble final outputs, integrate information from previous steps, and produce user-facing summaries or answers.",
+            "llm": "o4-mini",
+            "tools": [
+                "find_similar"
+            ]
+        },
+        {
+            "name": "Evaluator",
+            "description": "You are responsible for evaluating the experimental procedure retrieved for a similar product. First, review the 'procedure text' and 'query history' in memory data to determine whether it contains all necessary steps, reagents, and workup details\u2014including cross-references or undefined letter- or number-referenced reagents (including unusual abbreviations for reagents) such as \u201cgeneral procedure (of modification)\u201d, \u201cA1,\u201d \u201cLigand 2\u201d, \u201cPC,\u201d etc. Focus on both the synthesis and workup steps for that similar product. If the procedure is incomplete or still refers to undefined sections, identify and return the most critical reference term or keywords that must be retrieved next. The term or keywords must be one type of term and exclude those similar with words in the query history data. If the procedure is fully self-contained and no missing references remain, indicate that the extraction is complete and suggest manager terminate the workflow.",
+            "llm": "o4-mini",
+            "max_output": 50
+        }
+    ],
+    "task": [
+        {
+            "name": "Segment",
+            "description": "Split the user-provided text into segments based on different situational criteria (headings, paragraphs, or domain-specific markers). This task prepares the text for retrieval by ensuring logical units are preserved.",
+            "worker": "Text_Parser"
+        },
+        {
+            "name": "Product_Collect",
+            "description": "Extract the IUPAC names of all compounds that synthesized in the context.",
+            "worker": "Retriever"
+        },
+        {
+            "name": "Retrieval_Procedure",
+            "description": "Extract synthesis procedure for the similar product found in the literature instead of the product in goal.",
+            "worker": "Retriever"
+        },
+        {
+            "name": "Similarity",
+            "description": "Generate final synthesized output based on validated retrieval results. This task composes the user-facing response or report by integrating extracted data and applying domain logic.",
+            "worker": "Generator"
+        },
+        {
+            "name": "Evaluation",
+            "description": "Evaluate retrieved snippets to check if the required information or references are present. If not, flag and request additional retrieval.",
+            "worker": "Evaluator"
+        }
+    ],
+    "manager": {
+        "name": "RAGManager",
+        "description": "First, use the Splitter to tokenize the entire document into discrete units. Next, complete Retrieval_Product to retrieve every product mention from the literature. Then, invoke find_similar to perform a similarity search. After you\u2019ve identified the most similar product, complete Retrieval_Procedure task to pull in the full experimental procedure\u2014including both synthesis and workup stages\u2014for the most similar product using the procedure_extract_including_workup tool. Finally, enter an iterative loop of Retrieval_Procedure \u2192 Evaluation \u2192 Retrieval_Procedure: after each retrieval pass, evaluate the completeness and accuracy of the extracted procedures (including workup), then feed your evaluation results back into procedure_extract_including_workup to refine and improve the procedure retrieval until it meets your quality criteria.",
+        "llm": "o4-mini",
+        "tasks": [
+            "Segment",
+            "Product_Collect",
+            "Retrieval_Procedure",
+            "Similarity",
+            "Evaluation"
+        ]
+    },
+    "llm": [
+        {
+            "name": "o4-mini",
+            "api_key": "sk-ZfjYtt6PJWcXNJmp17071dE24dE145D3Ac0c2b9d02D73793",
+            "base_url": "https://api.ai-gaochao.cn/v1",
+            "model": "gpt-5"
+        }
+    ],
+    "name": "Literature Extraction has workup",
+    "tools": {
+        "split_chunk": {
+            "type": "function",
+            "function": {
+                "name": "split_chunk",
+                "description": "Split the input document into text chunks and save to RAG data folder.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "flow_id": {
+                            "type": "string",
+                            "description": "The ID of the flow."
+                        },
+                        "file_path": {
+                            "type": "string",
+                            "description": "The path to the source document."
+                        }
+                    },
+                    "required": [
+                        "flow_id",
+                        "file_path"
+                    ]
+                }
+            }
+        },
+        "product_extract": {
+            "type": "function",
+            "function": {
+                "name": "product_extract",
+                "description": "Extract all the product name from the literature.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "flow_id": {
+                            "type": "string",
+                            "description": "The id of the flow."
+                        }
+                    },
+                    "required": [
+                        "flow_id"
+                    ]
+                }
+            }
+        },
+        "procedure_extract_including_workup": {
+            "type": "function",
+            "function": {
+                "name": "procedure_extract_including_workup",
+                "description": "Extract synthesis and workup procedure for the similar product found in the literature instead of the product in goal.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "flow_id": {
+                            "type": "string",
+                            "description": "Unique identifier of the workflow."
+                        },
+                        "query_word": {
+                            "type": "string",
+                            "description": "The key term to search in the existing procedure given by Evaluator. If the term is an abbreviation, its type can be added. e.g., L1 \u2192 Ligand L1."
+                        },
+                        "chunk_count": {
+                            "type": "number",
+                            "description": "Number of text chunks to match: A. Use a small value (e.g., ~3) when 'query_word' is the IUPAC name (a standardized naming method, e.g., \"4-bromo-1-methylindazole\", \"2-methoxyethanol\"). B. Use a large value (e.g., ~20) when 'query_word' refers to frequent terms like \"general procedure\", \"ligand 1\", \"PC\", \"catalyst\". C. Increase it (e.g., number of searches \u00d7 20) on repeated searches for similar 'query_word's."
+                        }
+                    },
+                    "required": [
+                        "flow_id",
+                        "query_word",
+                        "chunk_count"
+                    ]
+                }
+            }
+        },
+        "find_similar": {
+            "type": "function",
+            "function": {
+                "name": "find_similar",
+                "description": "Find similar product with target product.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "flow_id": {
+                            "type": "string",
+                            "description": "Unique identifier of the workflow."
+                        },
+                        "target_product": {
+                            "type": "string",
+                            "description": "Target product user wants to synthesize."
+                        }
+                    },
+                    "required": [
+                        "flow_id",
+                        "target_product"
+                    ]
+                }
+            }
+        }
+    },
+    "flow": {
+        "description": "I want to find the possible procedure of C1(OCCC)C=CC(N(C(=O)C)C)=CC=1\n\n[ATTACHMENT_PATH]: D:/llm4optimization/Documents_uploads/anie202400333-sup-0001-misc_information-1__fee1828168cbceee.txt",
+        "manager": "RAGManager",
+        "max_inter": 100,
+        "summary": "o4-mini"
+    },
+    "id": "8f43e318-8114-48a8-8c58-a6b856cbd332"
+}
